@@ -1,0 +1,39 @@
+{
+  "name": "api_connect",
+  "version": "1.0.0",
+  "author": "Alexey Sulimenko <sulimenkoas@gmail.com>",
+  "description": "Api connecter",
+  "license": "MIT",
+  "keywords": [],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/metarhia/Example"
+  },
+  "main": "server.js",
+  "types": "types/global.d.ts",
+  "scripts": {
+    "test": "npm run lint && npm run types && MODE=test node server.js",
+    "dotest": "npm run lint && npm run types && node server.js",
+    "types": "tsc",
+    "lint": "eslint . && prettier -c \"**/*.js\" \"**/*.json\" \"**/*.md\" \"**/*.yml\" \"**/*.ts\"",
+    "fmt": "prettier --write \"**/*.js\" \"**/*.json\" \"**/*.md\" \"**/*.yml\" \"**/*.ts\""
+  },
+  "engines": {
+    "node": "18 || 20"
+  },
+  "devDependencies": {
+    "@types/node": "^20.5.0",
+    "@types/ws": "^8.5.10",
+    "eslint": "^8.56.0",
+    "eslint-config-metarhia": "^8.2.2",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-import": "^2.29.1",
+    "eslint-plugin-prettier": "^5.0.1",
+    "prettier": "^3.1.1",
+    "typescript": "^5.3.3"
+  },
+  "dependencies": {
+    "@alpacahq/alpaca-trade-api": "^3.0.1",
+    "impress": "^3.0.13"
+  }
+}
