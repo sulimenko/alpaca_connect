@@ -1,7 +1,7 @@
 ({
   access: 'public',
-  method: async ({ keys }) => {
-    const alpaca = await domain.clients.alpaca.get({ keys });
-    return alpaca.getAccount();
+  method: async ({ token, wallet, symbol, amount }) => {
+    // console.log(token, wallet, symbol, amount);
+    return lib.alpaca.transfer({ token, wallet, symbol, amount });
   },
 });
