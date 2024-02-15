@@ -7,7 +7,7 @@
     const responce = lib.utils.makeResult('assets', { samples: [] });
 
     if (symbol) {
-      responce.data.samples = await domain.clients.alpaca.get({ keys }).getAsset(symbol);
+      responce.data.samples = await (await domain.clients.alpaca.get({ keys })).getAsset(symbol);
       return responce;
     }
 
