@@ -30,8 +30,7 @@
     if (client_order_id) data.client_order_id = String(client_order_id);
     if (limit_price && typeof limit_price === 'number') data.limit_price = limit_price;
     // if (stop_loss && typeof stop_loss === 'number') data.stop_loss = stop_loss;
-    // if (stop_price && typeof stop_price === 'number')
-    // data.stop_price = stop_price;
+    if (stop_price && typeof stop_price === 'number') data.stop_price = stop_price;
     // if (take_profit && typeof take_profit === 'number')
     // data.take_profit = take_profit;
     // if (take_profit && typeof take_profit === 'number')
