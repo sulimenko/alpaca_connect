@@ -2,7 +2,7 @@
   host: process.env.host || '0.0.0.0',
   // balancer: 9000,
   protocol: process.env.protocol || 'http',
-  ports: [9000],
+  ports: [parseInt(process.env.port) || 11100],
   nagle: false,
   timeouts: {
     bind: 2000,

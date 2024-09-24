@@ -1,4 +1,4 @@
-FROM node:lts-slim
+FROM node:18.20.0-alpine
 WORKDIR /usr/server
 COPY . .
 RUN npm i --production
