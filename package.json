@@ -1,39 +1,45 @@
 {
-  "name": "api_connect",
+  "name": "alpaca_connect",
   "version": "1.0.0",
   "author": "Alexey Sulimenko <sulimenkoas@gmail.com>",
-  "description": "Api connecter",
-  "license": "MIT",
-  "keywords": [],
+  "description": "Connector for Alpaca API",
+  "contributors": ["Alexey Sulimenko <sulimenkoas@gmail.com>"],
+  "license": "UNLICENSED",
+  "private": true,
+  "keywords": ["trading", "api", "connector", "tradingstation", "websocket", "rpc", "internal", "proprietary"],
   "repository": {
     "type": "git",
-    "url": "https://github.com/metarhia/Example"
+    "url": "https://github.com/sulimenko/api_connect"
   },
+  "bugs": {
+    "url": "https://github.com/sulimenko/api_connect/issues"
+  },
+  "homepage": "https://github.com/sulimenko/api_connect",
   "main": "server.js",
   "types": "types/global.d.ts",
   "scripts": {
     "test": "npm run lint && npm run types && MODE=test node server.js",
     "dotest": "npm run lint && npm run types && node server.js",
-    "types": "tsc",
-    "lint": "eslint . && prettier -c \"**/*.js\" \"**/*.json\" \"**/*.md\" \"**/*.yml\" \"**/*.ts\"",
-    "fmt": "prettier --write \"**/*.js\" \"**/*.json\" \"**/*.md\" \"**/*.yml\" \"**/*.ts\""
+    "types": "tsc -p tsconfig.json",
+    "lint": "eslint . && prettier -c \"**/*.js\" \"**/*.json\" \"**/*.md\"",
+    "fix": "eslint . --fix && prettier --write \"**/*.js\" \"**/*.json\" \"**/*.md\"",
+    "db": "metasql c",
+    "start": "node server.js"
   },
   "engines": {
-    "node": "18 || 20"
+    "node": "18 || 20 || 21 || 22"
   },
   "devDependencies": {
-    "@types/node": "^20.5.0",
-    "@types/ws": "^8.5.10",
-    "eslint": "^8.56.0",
-    "eslint-config-metarhia": "^8.2.2",
-    "eslint-config-prettier": "^9.1.0",
-    "eslint-plugin-import": "^2.29.1",
-    "eslint-plugin-prettier": "^5.0.1",
-    "prettier": "^3.1.1",
-    "typescript": "^5.3.3"
+    "@types/node": "^24.3.0",
+    "@types/ws": "^8.18.1",
+    "eslint": "^9.32.0",
+    "eslint-config-metarhia": "^9.1.2",
+    "prettier": "^3.6.2",
+    "typescript": "^5.9.3"
   },
   "dependencies": {
     "@alpacahq/alpaca-trade-api": "^3.0.1",
-    "impress": "^3.0.13"
+    "impress": "^3.0.13",
+    "redis": "^5.8.2"
   }
 }

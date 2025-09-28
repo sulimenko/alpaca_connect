@@ -1,25 +1,30 @@
-# Metarhia Server for Node.js
+# alpaca_connect
 
-## Feature list
+Connector for Alpaca API.
+Internal project based on an open-source solution metarhia.
 
-- Serve API with auto routing, HTTP(S), WS(S)
+---
 
-## Usage
+## Атрибуция
 
-- You need node.js v18 or later
-- Fork and clone this repository (optionally subscribe to repo changes)
-- Run `npm i` to install dependencies and generate RSA certificate
-- Remove unneeded dependencies if your project doesn't require them
-- Add your license to `LICENSE` file but don't remove starter kit license
-- Start your project modifying this starter kit
-- Before running server initialize the DB:
-  - First of all, make sure you have PostgreSQL installed (prefer 12.x).
-  - Run database initialization script: `database/setup.sh`
-- Run project: `node server.js` and stop with Ctrl+C
-- Ask questions in https://t.me/nodeua and post issues on
-  [github](https://github.com/HowProgrammingWorks/NodejsStarterKit/issues)
+This project is a modified version of an original work created by **Timur Shemsedinov**.
 
-## License
+Original project:
 
-Copyright (c) 2020-2023 Metarhia contributors.
-This starter kit is [MIT licensed](./LICENSE).
+- Author: Timur Shemsedinov <timur.shemsedinov@gmail.com>
+- License: MIT
+- Source: https://github.com/metarhia/Example
+
+Parts of the original code are used under the terms of the MIT License.  
+The full text of the original license is available in [`LICENSE-ORIGINAL`](./LICENSE-ORIGINAL).
+
+---
+
+## Лицензирование
+
+This modified version is **proprietary software** developed for internal use only.  
+It is **not licensed for public distribution or reuse**.
+
+All rights reserved. Unauthorized copying, distribution, or modification is prohibited.
+
+---
