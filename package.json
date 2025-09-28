@@ -35,11 +35,11 @@
     "eslint": "^9.32.0",
     "eslint-config-metarhia": "^9.1.2",
     "prettier": "^3.6.2",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.2"
   },
   "dependencies": {
     "@alpacahq/alpaca-trade-api": "^3.0.1",
-    "impress": "^3.0.13",
+    "impress": "^3.1.1",
     "redis": "^5.8.2"
   }
 }
