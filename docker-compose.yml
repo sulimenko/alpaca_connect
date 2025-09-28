@@ -9,4 +9,6 @@ services:
       - '${port}:${port}'
     volumes:
       - ./log:/usr/server/log
+    env_file:
+      - .env
     restart: unless-stopped
