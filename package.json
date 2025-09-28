@@ -3,10 +3,21 @@
   "version": "1.0.0",
   "author": "Alexey Sulimenko <sulimenkoas@gmail.com>",
   "description": "Connector for Alpaca API",
-  "contributors": ["Alexey Sulimenko <sulimenkoas@gmail.com>"],
+  "contributors": [
+    "Alexey Sulimenko <sulimenkoas@gmail.com>"
+  ],
   "license": "UNLICENSED",
   "private": true,
-  "keywords": ["trading", "api", "connector", "tradingstation", "websocket", "rpc", "internal", "proprietary"],
+  "keywords": [
+    "trading",
+    "api",
+    "connector",
+    "tradingstation",
+    "websocket",
+    "rpc",
+    "internal",
+    "proprietary"
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/sulimenko/api_connect"
@@ -32,13 +43,13 @@
   "devDependencies": {
     "@types/node": "^24.3.0",
     "@types/ws": "^8.18.1",
-    "eslint": "^9.32.0",
-    "eslint-config-metarhia": "^9.1.2",
+    "eslint": "^9.36.0",
+    "eslint-config-metarhia": "^9.1.3",
     "prettier": "^3.6.2",
     "typescript": "^5.9.2"
   },
   "dependencies": {
-    "@alpacahq/alpaca-trade-api": "^3.0.1",
+    "@alpacahq/alpaca-trade-api": "^3.1.3",
     "impress": "^3.1.1",
     "redis": "^5.8.2"
   }
