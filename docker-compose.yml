@@ -6,7 +6,7 @@ services:
     image: alpaca_connect:latest
     container_name: alpaca_connect
     ports:
-      - 9000:9000
+      - '${port}:${port}'
     volumes:
       - ./log:/usr/server/log
     restart: unless-stopped

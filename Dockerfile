@@ -5,6 +5,6 @@ RUN apk add --no-cache git
 RUN npm ci --only=production
 COPY . .
 RUN npm i --production
-EXPOSE 9000
-CMD ["node", "server.js"]
+ENV port=9000
+CMD ["npm", "start"]
 # docker build -t connect:v2 .
