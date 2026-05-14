@@ -1,5 +1,3 @@
-version: '1'
-
 services:
   alpaca_connect:
     build: .
@@ -12,3 +10,12 @@ services:
     env_file:
       - .env
     restart: unless-stopped
+    networks:
+      ptfin-backend:
+        aliases:
+          - alpaca.ptfin.local
+
+networks:
+  ptfin-backend:
+    external: true
+    name: ptfin-backend
