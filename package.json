@@ -3,21 +3,10 @@
   "version": "1.0.0",
   "author": "Alexey Sulimenko <sulimenkoas@gmail.com>",
   "description": "Connector for Alpaca API",
-  "contributors": [
-    "Alexey Sulimenko <sulimenkoas@gmail.com>"
-  ],
+  "contributors": ["Alexey Sulimenko <sulimenkoas@gmail.com>"],
   "license": "UNLICENSED",
   "private": true,
-  "keywords": [
-    "trading",
-    "api",
-    "connector",
-    "tradingstation",
-    "websocket",
-    "rpc",
-    "internal",
-    "proprietary"
-  ],
+  "keywords": ["trading", "api", "connector", "tradingstation", "websocket", "rpc", "internal", "proprietary"],
   "repository": {
     "type": "git",
     "url": "https://github.com/sulimenko/api_connect"
@@ -29,7 +18,7 @@
   "main": "server.js",
   "types": "types/global.d.ts",
   "scripts": {
-    "test": "npm run lint && npm run types && MODE=test node server.js",
+    "test": "npm run lint && npm run types && node -e \"process.env.MODE='test'; require('./server.js')\"",
     "dotest": "npm run lint && npm run types && node server.js",
     "types": "tsc -p tsconfig.json",
     "lint": "eslint . && prettier -c \"**/*.js\" \"**/*.json\" \"**/*.md\"",
