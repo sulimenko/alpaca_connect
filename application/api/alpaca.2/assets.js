@@ -1,5 +1,5 @@
 /* eslint-disable camelcase */
-/* eslint-disable no-undef */
+
 ({
   access: 'public',
   method: async ({ keys, symbol, status, type }) => {
