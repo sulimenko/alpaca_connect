@@ -1,4 +1,4 @@
-FROM node:22-alpine
+FROM node:24-alpine
 WORKDIR /usr/server
 COPY package*.json .
 RUN apk update && apk upgrade --no-cache

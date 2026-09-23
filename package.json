@@ -9,12 +9,12 @@
   "keywords": ["trading", "api", "connector", "tradingstation", "websocket", "rpc", "internal", "proprietary"],
   "repository": {
     "type": "git",
-    "url": "https://github.com/sulimenko/api_connect"
+    "url": "https://github.com/sulimenko/alpaca_connect"
   },
   "bugs": {
-    "url": "https://github.com/sulimenko/api_connect/issues"
+    "url": "https://github.com/sulimenko/alpaca_connect/issues"
   },
-  "homepage": "https://github.com/sulimenko/api_connect",
+  "homepage": "https://github.com/sulimenko/alpaca_connect",
   "main": "server.js",
   "types": "types/global.d.ts",
   "scripts": {
@@ -27,7 +27,7 @@
     "start": "node server.js"
   },
   "engines": {
-    "node": "20 || 22"
+    "node": ">=24 <25"
   },
   "devDependencies": {
     "@types/node": "^25.9.1",
