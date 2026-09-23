@@ -1,14 +1,19 @@
-version: '1'
-
 services:
   alpaca_connect:
     build: .
     image: alpaca_connect:latest
     container_name: alpaca_connect
-    ports:
-      - '${port}:${port}'
     volumes:
       - ./log:/usr/server/log
     env_file:
       - .env
     restart: unless-stopped
+    networks:
+      ptfin-backend:
+        aliases:
+          - alpaca.ptfin.local
+
+networks:
+  ptfin-backend:
+    external: true
+    name: ptfin-backend

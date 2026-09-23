@@ -1,6 +1,5 @@
-/* eslint-disable no-unused-vars */
 /* eslint-disable camelcase */
-/* eslint-disable no-undef */
+
 ({
   access: 'public',
   method: async ({
