@@ -1,58 +1,20 @@
-# Alpaca Connect — AI Pipeline v8.2 project settings
+# alpaca_connect — настройки проекта v8.3
 
 Repository: `sulimenko/alpaca_connect`.
+Base: `develop`. Queue: `ai-task-queue`. Runtime: `node24`.
+Local runner: `~/.ai-pipeline/`; profile: `projects/<repo-key>/env.sh`.
 
-Short name: `alpaca_connect`.
-
-## Git
-
-Base: `develop`.
-
-Queue: `ai-task-queue`.
-
-## Runtime
-
-Required Node.js: `24`.
-
-Engine: `>=24 <25`.
-
-Local bootstrap:
-
-`~/.ai-pipeline/projects/<repo-key>/env.sh`
-
-## Shared policy
-
-Canonical local pipeline:
-
-`~/.ai-pipeline/`
-
-ChatGPT-readable snapshot:
-
-`ai-task-queue:doc/pipeline/v8.2.0/`
-
-## Validation
-
-Default:
-
-    npm test
-
-Targeted:
+## Начальные проверки
 
     npm run lint
     npm run types
 
-Project wrapper:
+Команды конкретной задачи выводить из актуального package/composer и code path. Не запускать весь npm test автоматически, если он содержит заранее известные несовместимые expectations или внешние side effects. Существующий project-checks.sh сохранён миграцией; его реальные действия нужно учитывать при выборе команды.
 
-    BASE_BRANCH=develop CHECK_MODE=default bash doc/ai/project-checks.sh
+## Архитектура
 
-## Constraints
+`doc/ai/project-invariants.md` сохраняет проектные разделы прежнего AGENTS.md; проверьте diff миграции. Остальная модульная и продуктовая документация не переписывается.
 
-Preserve API/domain/lib ownership.
+## Shared policy
 
-Without explicit approval:
-
-- no `.env`;
-- no secrets/tokens;
-- no dependencies or lockfile changes;
-- no auth/session semantic changes;
-- no unrelated refactor.
+`ai-task-queue:doc/pipeline/v8.3.0/`. Implementation без изменения тестов → runtime observations → checkpoint/Draft PR → ручное принятие → отдельный test-only follow-up. Новые задачи имеют версию 8.3.0 и явное разрешение пользователя.

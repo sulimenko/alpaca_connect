@@ -1,137 +1,41 @@
-# Alpaca Connect — AI Pipeline v8.2
+# alpaca_connect — AI Pipeline v8.3
 
-Repository: `sulimenko/alpaca_connect`.
+Репозиторий: `sulimenko/alpaca_connect`. Язык задач, объяснений, архитектурных отчётов и review — русский.
 
-Local directory: `/Users/alexey/site/api_connect`.
+## Источники и приоритет
 
-Project short name: `alpaca_connect`.
+Явная инструкция пользователя → согласованный контракт → этот файл → `doc/ai/project-invariants.md` и project settings → shared policy.
+Перед новой работой читать этот файл, `doc/ai/chatgpt/project-settings.md`, соответствующие инструкции роли и релевантную архитектуру проекта. Не переносить архитектурные правила из другого проекта.
 
-Все AI tasks, review, follow-up, acceptance criteria и workflow guidance писать на русском языке.
+Shared policy: ветка `ai-task-queue`, каталог `doc/pipeline/v8.3.0/`. Читать `contract-schema.md`, `worker-rules.md`, `verification-policy.md`, `router-policy.md` и подходящий шаблон. Старые v8.2 контракты не исполняются автоматически.
 
-## Instruction precedence
+## Роли и цикл
 
-1. Прямое указание пользователя.
-2. Active `ai-task-contract`.
-3. Этот `AGENTS.md`.
-4. `doc/ai/chatgpt/project-settings.md`.
-5. Shared AI Pipeline v8.2 policy.
-6. Relevant production code and project documentation.
+ChatGPT — владелец бизнес-цели, окончательного ТЗ и Final Review. Локальный Technical Architect — один исследовательский проход и единый handoff со всеми рекомендациями, а не критик на каждом повторе. Исполнители: Codex GPT-6 Astra low/medium либо Kimi K3. Runner владеет Git, очередью, командами и отчётами; агент не управляет Git.
 
-## Shared pipeline
+Цикл: цель → Technical Architect при необходимости → отчёт пользователем в ChatGPT → окончательный draft → явное разрешение пользователя → implementation → автоматические наблюдения → checkpoint/Draft PR → ручная проверка → явное принятие конкретной реализации → отдельная test-only задача → Final Review → решение пользователя о merge.
 
-Version: `8.2.0`.
+## Git
 
-Local runtime:
+Base: `develop`. Queue: `ai-task-queue`. Work: `ai/T-XXX-*`. Контракт: `version: 8.3.0`.
+Staging только `git add -A` без списка файлов; guards до и после staging. Посторонние изменения блокируют commit, а не включаются молча. Нельзя force-push, автоматический reset --hard или git clean. Очередь не сливается в production-ветку.
 
-`~/.ai-pipeline/`
+## Тесты и принятие
 
-ChatGPT-readable shared policy находится на branch `ai-task-queue`:
+В implementation нельзя создавать/изменять regression tests, fixtures или test setup, включая скрытый test harness в другой папке. Существующие релевантные проверки можно запускать без изменения. Заранее известные устаревшие expectations перечисляются как deferred; неизвестное падение не считается устаревшим автоматически.
 
-`doc/pipeline/v8.2.0/`
+Test-only допускается только по acceptance-записи с ручными результатами и отдельным разрешением тестов. Принятие фиксирует SHA, revision и contract hash. Изменение только разрешённых тестов не отменяет принятие production; изменение защищённых файлов — отменяет. Test Author не исправляет production и не ослабляет assertions.
 
-## Roles
+## Runtime и проверка
 
-- ChatGPT = Architect + Final Reviewer.
-- Kimi K3 = Researcher и optional Executor.
-- GPT-6 Astra = default implementation Executor.
-- Runner = queue/git/scope/validation/runtime verification/commit/push/PR.
-- Codex read-only = Runtime Verifier.
-- Codex/Kimi = Test Author согласно contract.
+Runtime профиля: `node24`. Machine-specific bootstrap: `~/.ai-pipeline/projects/<repo-key>/env.sh`.
+Docker не проверяется и не запускается автоматически. SQL только минимальный SELECT/неисполняющий EXPLAIN через подтверждённые readonly-права, с лимитами. Сложные сценарии и миграции пользователь выполняет вручную по согласованным командам. Успешный CLI, ноль выполненных тестов или пустая очередь не доказывают бизнес-корректность.
 
-Agents не управляют git lifecycle самостоятельно.
+## Безопасность и сохранение работы
 
-## Repository
-
-Base branch: `develop`.
-
-Queue branch: `ai-task-queue`.
-
-Work branches:
-
-`ai/T-XXX-*`
-
-New tasks use:
-
-`version: 8.2.0`
-
-## Runtime
-
-Node.js 24 required.
-
-Supported engine:
-
-`>=24 <25`
-
-Machine bootstrap:
-
-`~/.ai-pipeline/projects/<repo-key>/env.sh`
-
-## Project
-
-Alpaca Connect — Metarhia/Impress integration service для Alpaca brokerage APIs.
-
-## Layers
-
-- `application/api/` — RPC contract, validation и thin orchestration.
-- `application/domain/` — server-side state и lifecycle.
-- `application/lib/` — Alpaca integrations и technical helpers.
-- `application/config/` — runtime configuration.
-- `application/db/` — infrastructure.
-- `types/` — shared typing.
-
-Не переносить ownership между API/domain/lib без explicit task scope.
-
-## Alpaca integration
-
-Основные зоны:
-
-- `application/api/alpaca.2/**`
-- `application/domain/clients/alpaca.js`
-- `application/lib/alpaca/**`
-- `application/config/alpaca.js`
-
-External Alpaca response data считается integration input и должна безопасно обрабатываться.
-
-## Auth
-
-Auth runtime:
-
-`application/api/auth.2/**`
-
-Не менять auth/session semantics без explicit task scope.
-
-## Tests
-
-Use v8.2:
-
-`tests.strategy: none | before | after_verification | both`
-
-Default validation:
-
-`npm test`
+Scope задаётся явно. Без разрешения нельзя менять secrets, credentials, зависимости/lockfiles, runtime/production config, схемы и несвязанный код. Raw-логи/DB-данные не публикуются автоматически. Один executor на репозиторий; другой компьютер не перехватывает зависший claim автоматически.
 
 ## Evidence
 
-Raw:
-
-`~/.ai-pipeline/runs/...`
-
-Compact:
-
-`ai-task-queue:doc/tasks/evidence/T-XXX-summary.md`
-
-Research:
-
-`ai-task-queue:doc/tasks/research/R-XXX-*`
-
-## Safety
-
-Без explicit approval запрещено:
-
-- `.env`, secrets, tokens, credentials, private keys;
-- dependencies/lockfiles;
-- production configuration;
-- auth/session semantic changes;
-- unrelated refactor;
-- generated logs/artifacts;
-- destructive production action.
+Локально: `~/.ai-pipeline/runs/`. Shared handoff/receipts: `ai-task-queue:doc/tasks/evidence/`. Architecture: `doc/tasks/research/`. Acceptance: `doc/tasks/acceptance/`.
+Review проверяет exact remote head, контракт, scope, фактические автоматические результаты, ручные результаты и оставшиеся ограничения. Ответ: `Merge ready` либо `Blocked` с конкретной причиной. Не делать заявление о проверках, которых не было.
