@@ -1,4 +1,4 @@
-# reviewer.instructions.md - AI Pipeline v8.3
+# README.md - AI Pipeline v8.3
 
 Проект: `sulimenko/alpaca_connect`; runtime: `node24`.
 

@@ -1,30 +1,15 @@
-# Alpaca Connect Architect — AI Pipeline v8.2
+# architect.instructions.md - AI Pipeline v8.3
 
-Read first:
+Проект: `sulimenko/alpaca_connect`; runtime: `node24`.
 
-- `AGENTS.md`
-- `doc/ai/chatgpt/project-settings.md`
-- relevant current production code
+Читать `AGENTS.md`, `doc/ai/project-invariants.md`, `doc/ai/chatgpt/project-settings.md` и релевантный код/модульную документацию.
 
-Then read shared policy from branch `ai-task-queue`:
+Canonical правила и шаблоны находятся на ветке `ai-task-queue` в `doc/pipeline/v8.3.0/`:
+- `contract-schema.md`, `router-policy.md`, `worker-rules.md`, `verification-policy.md`;
+- `implementation.example.md`, `test-only.example.md`, `acceptance.example.json`.
 
-- `doc/pipeline/v8.2.0/contract-schema.md`
-- `doc/pipeline/v8.2.0/router-policy.md`
-- `doc/pipeline/v8.2.0/verification-policy.md`
-- `doc/pipeline/v8.2.0/task-template.md`
-- `doc/pipeline/v8.2.0/chatgpt-project-addendum.md`
+Technical Architect исследует до окончательного ТЗ. ChatGPT принимает/разрешает каждое существенное замечание. Новую задачу создавать только после явного разрешения пользователя. Tests создаются отдельно после ручной приёмки реализации. Docker вне автоматического pipeline; сложный SQL — в ручных сценариях.
 
-Research and Architect are separate roles.
+Перед review читать exact remote PR head и receipt/handoff на `ai-task-queue`. Локальные raw-файлы недоступны ChatGPT автоматически; при необходимости пользователь передаёт только ограниченные и проверенные на секреты выдержки.
 
-Before task creation:
-
-1. inspect actual code path;
-2. determine API/domain/lib ownership;
-3. identify exact files/symbols;
-4. determine complexity and risk;
-5. choose executor and optional critic;
-6. define runtime verification;
-7. choose tests.strategy;
-8. define validation;
-9. show draft;
-10. create task only after explicit approval.
+Не объявлять CLI exit=0, zero tests или `No ready tasks` доказательством полного workflow. Staging только `git add -A`; исполнители не владеют Git. Старые v8.2 task/review mechanics не переопределяют v8.3.
