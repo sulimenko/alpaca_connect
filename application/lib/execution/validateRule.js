@@ -5,7 +5,7 @@
   const { decimal } = lib.execution;
   if (rules?.version !== 1 || rules.state !== 'ready' || !order || !Array.isArray(rules.orders)) return false;
   const keys = ['type', 'tif', 'session', 'extended', 'relation', 'orderClass', 'quantityMode', 'side', 'positionEffect'];
-  const rows = rules.orders.filter((row) => keys.every((key) => row[key] === order[key]) && row.quantity.fractional === order.fractional);
+  const rows = rules.orders.filter((row) => keys.every((key) => row[key] === order[key]) && row.quantity?.fractional === order.fractional);
   if (rows.length !== 1) return false;
   const row = rows[0];
   const quantity = row.quantity;
@@ -13,6 +13,7 @@
     row.extended !== (row.session !== 'regular') ||
     !['regular', 'pre_market', 'post_market', 'overnight'].includes(row.session) ||
     typeof quantity.fractional !== 'boolean' ||
+    row.quantityMode !== (quantity.fractional ? 'fractional' : 'whole') ||
     decimal.compare(quantity.minimum, '0') !== 1 ||
     decimal.compare(quantity.step, '0') !== 1 ||
     decimal.compare(order.quantity, quantity.minimum) === null ||
@@ -27,14 +28,9 @@
   const validPrice = (value) => {
     if (decimal.compare(value, '0') !== 1 || !Array.isArray(rules.price?.rules)) return false;
     const candidates = rules.price.rules.filter((rule) => {
-      const lower = decimal.compare(value, rule.minimum);
-      const upper = rule.maximum === 'infinity' ? -1 : decimal.compare(value, rule.maximum);
-      return (
-        lower !== null &&
-        upper !== null &&
-        (lower > 0 || (lower === 0 && rule.minimumInclusive)) &&
-        (upper < 0 || (upper === 0 && rule.maximumInclusive))
-      );
+      const lower = decimal.compare(value, rule.minInclusive);
+      const upper = rule.maxExclusive === null ? -1 : decimal.compare(value, rule.maxExclusive);
+      return lower !== null && upper !== null && lower >= 0 && upper < 0;
     });
     return candidates.length === 1 && decimal.onGrid(value, candidates[0].tick);
   };

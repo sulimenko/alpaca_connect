@@ -92,10 +92,9 @@ async ({ data }) => {
     orders,
     quantity: lib.execution.ruleSummary({ orders }),
     price: {
-      rounding: 'nearest_half_up',
       rules: [
-        { minimum: '0', maximum: '1', minimumInclusive: true, maximumInclusive: false, tick: '0.0001', precision: 4 },
-        { minimum: '1', maximum: 'infinity', minimumInclusive: true, maximumInclusive: false, tick: '0.01', precision: 2 },
+        { minInclusive: '0', maxExclusive: '1', tick: '0.0001', precision: 4, rounding: 'nearest_half_up' },
+        { minInclusive: '1', maxExclusive: null, tick: '0.01', precision: 2, rounding: 'nearest_half_up' },
       ],
     },
   };

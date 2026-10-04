@@ -69,7 +69,9 @@ Unknown attributes fail closed rather than implying an unrestricted asset.
 
 Every `orders[]` row contains
 `type,tif,session,extended,relation,orderClass,quantityMode,side,positionEffect,quantity`.
-Relation is `NORMAL`, class is `simple`, quantity mode is `qty`. No
+Relation is `NORMAL`, class is `simple`, and quantity mode is `whole` or
+`fractional`, matching the row's `quantity.fractional`. These common-wire values
+describe quantity capability; native submission remains qty-based. No
 bracket/OCO/OTO or notional order mode is advertised.
 
 The [native equity order matrix](https://docs.alpaca.markets/us/docs/orders-at-alpaca)
@@ -150,15 +152,28 @@ same value; otherwise it is null. For a mixed whole/fractional buy/sell response
 Null means no uniform rule, not unbounded or missing row proof. Concrete internal
 `validateRule({rules,order,valuationPrice})` selects one exact atomic row by all
 capability keys and explicit `order.fractional`, then checks that row's qty
-constraints. It never validates against the summary. Quantities/prices are
+constraints, including consistency of `quantityMode` with `quantity.fractional`.
+It never validates against the summary. Quantities/prices are
 positive decimal strings; buy value validation needs explicit caller-supplied
 valuationPrice and exact qty-times-price evidence. This internal helper does not
 alter T-133/T-135 submit validation or guarantee a future fill price.
 
-Price is `{rounding:'nearest_half_up',rules:[...]}`. Each rule has decimal-string
-`minimum,maximum,tick`, integer `precision`, and explicit inclusive flags. The
-intervals are `[0,1)` with tick `0.0001` / precision 4 and `[1,infinity)` with tick
-`0.01` / precision 2. Exactly 1 uses the second interval. Required limit/stop
+Price is `{rules:[...]}`. Each rule uses the common-wire fields
+`minInclusive,maxExclusive,tick,precision,rounding`:
+
+```json
+{
+  "rules": [
+    { "minInclusive": "0", "maxExclusive": "1", "tick": "0.0001", "precision": 4, "rounding": "nearest_half_up" },
+    { "minInclusive": "1", "maxExclusive": null, "tick": "0.01", "precision": 2, "rounding": "nearest_half_up" }
+  ]
+}
+```
+
+Bounds/ticks are decimal strings; `maxExclusive=null` means an unbounded price
+interval. Quantity's unconfirmed maximum remains the literal `'infinity'`.
+The intervals are `[0,1)` with tick `0.0001` / precision 4 and `[1,infinity)` with
+tick `0.01` / precision 2. Exactly 1 uses the second interval. Required limit/stop
 prices must lie on the exact zero-origin grid; zero is not an executable price.
 Rounding names PBull client policy only. This connector never rounds or mutates
 submitted values; PBull is unchanged.

@@ -937,7 +937,7 @@ test('positive atomic matrix preserves whole TIF support, fractional DAY/close-l
   for (const row of result.orders) {
     assert.equal(row.relation, 'NORMAL');
     assert.equal(row.orderClass, 'simple');
-    assert.equal(row.quantityMode, 'qty');
+    assert.equal(row.quantityMode, row.quantity.fractional ? 'fractional' : 'whole');
     assert.equal(row.extended, row.session !== 'regular');
     assert.equal(row.quantity.maximum, 'infinity');
     assert.deepEqual(row.quantity.minimumNotional, row.side === 'buy' ? { amount: '1', currency: 'USD' } : null);
@@ -1087,6 +1087,9 @@ test('summary is uniform-only and concrete validation always selects an exact at
     { relation: 'BRK' },
     { orderClass: 'oco' },
     { quantityMode: 'notional' },
+    { quantityMode: 'qty' },
+    { quantityMode: 'whole' },
+    { fractional: false },
     { session: 'overnight', extended: false },
     { tif: 'opg' },
     { tif: 'cls' },
@@ -1101,6 +1104,15 @@ test('summary is uniform-only and concrete validation always selects an exact at
   for (const name of ['minimum', 'step', 'fractional']) {
     const broken = { ...rules, orders: [{ ...selected, quantity: { ...selected.quantity, [name]: null } }] };
     assert.equal(validateRule({ rules: broken, order: orderFor(selected, '1') }), false);
+  }
+  for (const fractional of [false, true]) {
+    const row = choose('sell', fractional);
+    assert.equal(validateRule({ rules, order: orderFor(row, '1') }), true);
+    for (const quantityMode of ['qty', 'notional', null, fractional ? 'whole' : 'fractional']) {
+      const inconsistent = { ...row, quantityMode };
+      const broken = { ...rules, orders: [inconsistent] };
+      assert.equal(validateRule({ rules: broken, order: orderFor(inconsistent, '1') }), false);
+    }
   }
 });
 
@@ -1117,6 +1129,8 @@ test('exact decimal price boundary/tick validation never rounds and refuses nume
     ['1', true],
     ['1.00', true],
     ['1.01', true],
+    ['9007199254740993.01', true],
+    ['9007199254740993.001', false],
     ['0.00001', false],
     ['0.99999', false],
     ['1.0001', false],
@@ -1132,11 +1146,28 @@ test('exact decimal price boundary/tick validation never rounds and refuses nume
       assert.equal(JSON.stringify(order), original);
     }
   }
-  assert.equal(rules.price.rules[0].maximum, '1');
-  assert.equal(rules.price.rules[0].maximumInclusive, false);
-  assert.equal(rules.price.rules[1].minimum, '1');
-  assert.equal(rules.price.rules[1].minimumInclusive, true);
-  assert.equal(rules.price.rounding, 'nearest_half_up');
+  assert.deepEqual(rules.price, {
+    rules: [
+      { minInclusive: '0', maxExclusive: '1', tick: '0.0001', precision: 4, rounding: 'nearest_half_up' },
+      { minInclusive: '1', maxExclusive: null, tick: '0.01', precision: 2, rounding: 'nearest_half_up' },
+    ],
+  });
+  const order = { ...row, fractional: false, quantity: '1', limitPrice: '1', stopPrice: '1' };
+  for (const patch of [{ minInclusive: undefined }, { maxExclusive: undefined }, { maxExclusive: 'infinity' }]) {
+    const broken = { ...rules, price: { rules: [{ ...rules.price.rules[1], ...patch }] } };
+    assert.equal(validateRule({ rules: broken, order }), false);
+  }
+  const legacy = {
+    ...rules,
+    price: {
+      rounding: 'nearest_half_up',
+      rules: [{ minimum: '1', maximum: 'infinity', minimumInclusive: true, maximumInclusive: false, tick: '0.01', precision: 2 }],
+    },
+  };
+  assert.equal(validateRule({ rules: legacy, order }), false);
+  const shifted = { ...rules, price: { rules: [{ ...rules.price.rules[0], minInclusive: '0.00005' }] } };
+  assert.equal(validateRule({ rules: shifted, order: { ...order, limitPrice: '0.0001', stopPrice: '0.0001' } }), true);
+  assert.equal(validateRule({ rules: shifted, order: { ...order, limitPrice: '0.00015', stopPrice: '0.00015' } }), false);
   assert.equal(decimal.parse('0001.23000').canonical, '1.23');
   assert.equal(decimal.compare('9007199254740993', '9007199254740992'), 1);
   assert.equal(decimal.productAtLeast('0.000000001', '999999999.999999999', '1'), false);

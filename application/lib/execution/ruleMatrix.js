@@ -48,7 +48,7 @@
               extended,
               relation: 'NORMAL',
               orderClass: 'simple',
-              quantityMode: 'qty',
+              quantityMode: fraction ? 'fractional' : 'whole',
               ...effect,
               quantity: {
                 fractional: fraction,

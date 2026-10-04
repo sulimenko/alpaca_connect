@@ -287,7 +287,14 @@ test('real Impress authorized broker paths, full restart recovery and credential
     assert.equal(rules.state, 'ready');
     assert.deepEqual(rules.quantity, { fractional: true, minimum: null, step: null, maximum: 'infinity', minimumNotional: null });
     assert.deepEqual(rules.identity, { terminal: 'ALPACA', externalAccount: 'EXT-1', live: false });
+    assert.deepEqual(rules.price, {
+      rules: [
+        { minInclusive: '0', maxExclusive: '1', tick: '0.0001', precision: 4, rounding: 'nearest_half_up' },
+        { minInclusive: '1', maxExclusive: null, tick: '0.01', precision: 2, rounding: 'nearest_half_up' },
+      ],
+    });
     assert.ok(rules.orders.some((row) => row.session === 'overnight' && row.quantity.fractional));
+    assert.ok(rules.orders.every((row) => row.quantityMode === (row.quantity.fractional ? 'fractional' : 'whole')));
     assert.ok(rules.orders.every((row) => row.extended === (row.session !== 'regular')));
     assert.ok(rules.orders.every((row) => !row.extended || (row.type === 'limit' && row.tif === 'day')));
     assert.deepEqual(
