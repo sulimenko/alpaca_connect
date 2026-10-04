@@ -45,7 +45,47 @@ function installFetchFixture() {
     if (url.pathname === '/v2/account') {
       if (key === 'sentinel-transport-key') throw error();
       status = key === 'sentinel-revoked-key' ? 401 : 200;
-      body = { account_number: key === 'sentinel-wrong-account-key' ? 'OTHER' : 'EXT-1', id: 'native-account', secret };
+      body = {
+        account_number:
+          key === 'sentinel-wrong-account-key' || (key === 'sentinel-paper-only-key' && url.hostname !== 'paper-api.alpaca.markets')
+            ? 'OTHER'
+            : 'EXT-1',
+        id: 'native-account',
+        secret,
+        status: key === 'sentinel-inactive-key' ? 'APPROVAL_PENDING' : 'ACTIVE',
+        account_blocked: false,
+        trading_blocked: false,
+        trade_suspended_by_user: false,
+        shorting_enabled: true,
+        multiplier: '2',
+        equity: '2000',
+      };
+    } else if (url.pathname === '/v2/account/configurations') {
+      body =
+        key === 'sentinel-bad-config-key'
+          ? { secret }
+          : {
+              suspend_trade: false,
+              fractional_trading: true,
+              no_shorting: false,
+              max_margin_multiplier: '2',
+              disable_overnight_trading: false,
+              secret,
+            };
+    } else if (url.pathname === '/v2/assets/AAPL') {
+      body = {
+        class: 'us_equity',
+        symbol: 'AAPL',
+        exchange: 'NASDAQ',
+        status: 'active',
+        tradable: true,
+        fractionable: true,
+        marginable: true,
+        shortable: true,
+        easy_to_borrow: true,
+        attributes: key === 'sentinel-bad-asset-key' ? null : ['fractional_eh_enabled', 'overnight_tradable'],
+        secret,
+      };
     } else if (url.pathname === '/v2/orders' && options.method === 'POST') {
       const request = JSON.parse(options.body);
       if (request.symbol === 'REJECT') {
@@ -223,7 +263,7 @@ test('real Impress authorized broker paths, full restart recovery and credential
       restart_safe: true,
       marketdata: true,
     });
-    for (const action of ['submit', 'lookup', 'marketdata', 'capabilities']) {
+    for (const action of ['submit', 'lookup', 'marketdata', 'capabilities', 'rules']) {
       for (const headers of [
         { 'Content-Type': 'application/json' },
         { Authorization: 'Bearer sentinel-user-token', 'X-Service-Identity': 'metaterminal-execution' },
@@ -235,6 +275,64 @@ test('real Impress authorized broker paths, full restart recovery and credential
       assert.equal((await call(action, {}, { method: 'GET' })).state, 'invalid');
     }
     assert.equal(events().length, 0, 'all auth failures must happen before any broker request');
+    const rulesData = {
+      version: 1,
+      account: 'EXT-1',
+      live: false,
+      credentials: data().credentials,
+      instrument: { symbol: 'AAPL', assetCategory: 'STK', exchange: 'NASDAQ', currency: 'USD' },
+    };
+    const ruleStart = events().length;
+    const rules = await call('rules', rulesData);
+    assert.equal(rules.state, 'ready');
+    assert.deepEqual(rules.quantity, { fractional: true, minimum: null, step: null, maximum: 'infinity', minimumNotional: null });
+    assert.deepEqual(rules.identity, { terminal: 'ALPACA', externalAccount: 'EXT-1', live: false });
+    assert.deepEqual(rules.price, {
+      rules: [
+        { minInclusive: '0', maxExclusive: '1', tick: '0.0001', precision: 4, rounding: 'nearest_half_up' },
+        { minInclusive: '1', maxExclusive: null, tick: '0.01', precision: 2, rounding: 'nearest_half_up' },
+      ],
+    });
+    assert.ok(rules.orders.some((row) => row.session === 'overnight' && row.quantity.fractional));
+    assert.ok(rules.orders.every((row) => row.quantityMode === (row.quantity.fractional ? 'fractional' : 'whole')));
+    assert.ok(rules.orders.every((row) => row.extended === (row.session !== 'regular')));
+    assert.ok(rules.orders.every((row) => !row.extended || (row.type === 'limit' && row.tif === 'day')));
+    assert.deepEqual(
+      events()
+        .slice(ruleStart)
+        .map((event) => event.path),
+      ['/v2/account', '/v2/account/configurations', '/v2/assets/AAPL'],
+    );
+    assert.equal(posts(), 0, 'rules never places an order');
+    for (const pkey of [
+      'sentinel-inactive-key',
+      'sentinel-bad-config-key',
+      'sentinel-bad-asset-key',
+      'sentinel-revoked-key',
+      'sentinel-transport-key',
+    ]) {
+      const failure = await call('rules', { ...rulesData, credentials: { ...rulesData.credentials, pkey } });
+      assert.equal(failure.version, 1);
+      assert.equal(failure.state, 'unavailable');
+      assert.deepEqual(Object.keys(failure).sort(), ['reason', 'state', 'version']);
+    }
+    const paperCredentials = { ...rulesData.credentials, pkey: 'sentinel-paper-only-key' };
+    assert.equal((await call('rules', { ...rulesData, credentials: paperCredentials })).state, 'ready');
+    assert.equal((await call('rules', { ...rulesData, credentials: paperCredentials, live: true })).state, 'unavailable');
+    for (const patch of [
+      { version: 2 },
+      { account: { secret: 'sentinel-private-secret' } },
+      { credentials: null },
+      { instrument: { ...rulesData.instrument, assetCategory: 'OPT' } },
+      { instrument: { ...rulesData.instrument, currency: 'EUR' } },
+    ]) {
+      const count = events().length;
+      const failure = await call('rules', { ...rulesData, ...patch });
+      assert.ok(['unavailable', 'unsupported'].includes(failure.state));
+      assert.equal(failure.version, 1);
+      assert.equal(events().length, count);
+    }
+    assert.equal(posts(), 0);
     assert.equal((await call('submit', data())).state, 'acknowledged');
     assert.equal((await call('lookup', { ...data(), brokerId: 'B-17' })).state, 'found');
     assert.equal((await call('lookup', { ...data(), brokerId: 'OTHER' })).state, 'source_unavailable');
