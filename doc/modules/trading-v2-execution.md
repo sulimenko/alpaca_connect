@@ -73,7 +73,11 @@ request envelope cannot produce account proof. If an orderId already has a worke
 attempt, invalid intent/envelope/credentials, revoked credentials, failed account
 proof or transport failure returns ambiguous/source_unavailable and never
 replaces the prior attempt outcome or sends another order POST. A valid repeat
-may return the original sanitized outcome only after fresh proof.
+may return the latest sanitized outcome only after fresh proof. Successful lookup
+replaces an older cached rejection with recovered broker evidence: acknowledged
+for active/exposure states, ambiguous for a recovered zero-fill terminal row.
+A POST response arriving after that lookup cannot overwrite the recovered worker
+evidence or reopen placement.
 
 Only a structured native 400/401/403/422 rejection with valid error code/message
 and no order/duplicate evidence, or a normalized terminal zero-fill order, proves

@@ -343,6 +343,41 @@ test('native lookup recovers lost POST after fresh worker, pins brokerId and kee
   assert.equal(fresh.calls.filter((call) => call.url.includes('/v2/orders')).length, 2);
 });
 
+test('successful lookup replaces cached rejection with broker evidence without another POST', async () => {
+  for (const initial of [
+    { status: 422, body: { code: 42210000, message: 'insufficient buying power' } },
+    { status: 200, body: nativeOrder({ status: 'rejected' }) },
+  ]) {
+    for (const status of ['new', 'partially_filled', 'filled', 'canceled', 'expired', 'rejected']) {
+      const h = harness();
+      const data = input();
+      h.state.orderStatus = initial.status;
+      h.state.order = initial.body;
+      assert.equal((await h.invoke('submit', data)).state, 'rejected');
+      h.state.orderStatus = 200;
+      h.state.order = nativeOrder({ status, filled_qty: { filled: '2', partially_filled: '1' }[status] || '0' });
+      const recovered = await h.invoke('lookup', data);
+      assert.equal(recovered.state, 'found');
+      const proofCount = h.proofs().length;
+      const replay = await h.invoke('submit', data);
+      assert.equal(replay.state, ['canceled', 'expired', 'rejected'].includes(status) ? 'ambiguous' : 'acknowledged');
+      assert.deepEqual(plain(replay.broker), plain(recovered.broker));
+      assert.equal(h.proofs().length, proofCount + 1, 'recovered cached outcome still requires fresh account proof');
+      const evidence = plain(h.globals.domain.execution.attempts.get(data));
+      assert.equal((await h.invoke('submit', { ...data, brokerId: 'OTHER' })).state, 'ambiguous');
+      assert.equal((await h.invoke('submit', { ...data, intent: null })).state, 'ambiguous');
+      h.state.failAccount = true;
+      assert.equal((await h.invoke('submit', data)).state, 'source_unavailable');
+      h.state.failAccount = false;
+      h.state.order = nativeOrder({ filled_qty: null });
+      assert.equal((await h.invoke('lookup', data)).state, 'source_unavailable');
+      assert.deepEqual(plain(h.globals.domain.execution.attempts.get(data)), evidence, 'failed calls preserve recovered evidence');
+      assert.deepEqual(plain(await h.invoke('submit', data)), plain(replay));
+      assert.equal(h.posts().length, 1, 'native recovery never permits another POST');
+    }
+  }
+});
+
 const deferred = () => {
   let resolve;
   const promise = new Promise((done) => {
@@ -380,13 +415,17 @@ test('concurrent lookup proof survives delayed submit transport/rejection/malfor
     h.state.order = nativeOrder({ status: 'filled', filled_qty: '2' });
     assert.equal((await h.invoke('lookup', input())).state, 'found');
     assert.equal(h.globals.domain.execution.attempts.get(input()).brokerId, 'B-1');
+    const evidence = plain(h.globals.domain.execution.attempts.get(input()));
     release.resolve();
     const outcome = await pending;
     assert.equal(outcome.state, late === 'acknowledged' ? 'acknowledged' : 'ambiguous', late);
     assert.equal(h.globals.domain.execution.attempts.get(input()).brokerId, 'B-1', 'late response cannot erase identity');
+    assert.deepEqual(plain(h.globals.domain.execution.attempts.get(input())), evidence, 'late POST cannot overwrite lookup evidence');
     h.state.order = nativeOrder({ id: 'B-other' });
     assert.equal((await h.invoke('lookup', input())).state, 'source_unavailable', 'unpinned lookup still honors observed id');
-    await h.invoke('submit', input());
+    const replay = await h.invoke('submit', input());
+    assert.equal(replay.state, 'acknowledged');
+    assert.deepEqual(plain(replay.broker), { terminal_id: 'B-1', state: 'filled' });
     assert.equal(h.posts().length, 1, 'late response cannot open a retry');
   }
 });

@@ -92,7 +92,13 @@ async ({ action, data }) => {
     }
     // Successful native recovery also blocks subsequent submit in this worker.
     const observed = domain.execution.attempts.claim(data, null).attempt;
-    if (observed && observed.brokerId === null) observed.brokerId = broker.terminal_id;
+    if (observed) {
+      if (observed.brokerId === null) observed.brokerId = broker.terminal_id;
+      // Replay must reflect native recovery, never an older cached rejection.
+      // A recovered zero-fill terminal row is not a fresh submit rejection.
+      const terminal = ['cancelled', 'expired', 'rejected'].includes(broker.state);
+      observed.result = result(terminal ? 'ambiguous' : 'acknowledged', broker);
+    }
     return result('found', broker);
   }
   let outcome = result('ambiguous', broker);
@@ -123,9 +129,10 @@ async ({ action, data }) => {
   const observedId = claim.attempt.brokerId;
   if (observedId !== null) {
     if (!broker || broker.terminal_id !== observedId || outcome.state !== 'acknowledged') outcome = result('ambiguous');
-  } else if (broker) {
-    claim.attempt.brokerId = broker.terminal_id;
+    // The lookup completed after this POST began; preserve its newer evidence.
+  } else {
+    if (broker) claim.attempt.brokerId = broker.terminal_id;
+    claim.attempt.result = outcome;
   }
-  claim.attempt.result = outcome;
   return outcome;
 };
