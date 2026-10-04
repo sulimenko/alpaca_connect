@@ -10,7 +10,9 @@ credential storage is introduced.
 
 The first protected API is `application/api/execution.1.js`. Legacy public
 `alpaca.2` endpoints and auth/session semantics are unchanged. Package and lockfile
-version are `26.10.0`; API version stays `1`, wire version stays `2`.
+version are `26.10.0`; API version stays `1`, execution wire version stays `2`.
+The additional protected [rules endpoint (T-137)](execution-rules-v1.md) has its
+own wire version `1` and does not change this execution contract.
 
 Only POST requests to `/api/execution/submit`, `/api/execution/lookup`,
 `/api/execution/marketdata`, `/api/execution/capabilities` are supported. All require

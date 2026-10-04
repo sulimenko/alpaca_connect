@@ -48,6 +48,27 @@ function harness() {
     failAccount: false,
     failOrder: false,
     badJSON: false,
+    configuration: {
+      suspend_trade: false,
+      fractional_trading: true,
+      no_shorting: false,
+      max_margin_multiplier: '2',
+      disable_overnight_trading: false,
+    },
+    configurationStatus: 200,
+    asset: {
+      class: 'us_equity',
+      symbol: 'AAPL',
+      exchange: 'NASDAQ',
+      status: 'active',
+      tradable: true,
+      fractionable: true,
+      marginable: true,
+      shortable: true,
+      easy_to_borrow: true,
+      attributes: ['fractional_eh_enabled', 'overnight_tradable'],
+    },
+    assetStatus: 200,
     bars: { bars: [{ c: 11, h: 12, l: 9, o: 10, t: '2026-10-01T12:00:00Z', n: 2, v: 100 }], next_page_token: null },
     snapshots: { AAPL: { latestTrade: { p: 11 }, prevDailyBar: { c: 10 } } },
   };
@@ -73,7 +94,13 @@ function harness() {
       const revoked =
         options.headers['APCA-API-KEY-ID'] === 'revoked-key' || options.headers['APCA-API-SECRET-KEY'] !== 'sentinel-private-secret';
       status = revoked ? 401 : state.accountStatus;
-      body = state.account;
+      body = typeof state.account === 'function' ? state.account(url) : state.account;
+    } else if (url.endsWith('/v2/account/configurations')) {
+      status = state.configurationStatus;
+      body = state.configuration;
+    } else if (url.endsWith('/v2/assets/AAPL')) {
+      status = state.assetStatus;
+      body = state.asset;
     } else if (url.includes('/stocks/AAPL/bars')) {
       body = typeof state.bars === 'function' ? state.bars(url) : state.bars;
     } else if (url.includes('/stocks/snapshots')) {
@@ -95,7 +122,20 @@ function harness() {
     };
   };
   globals.domain.execution.attempts = load('domain/execution/attempts.js', globals);
-  for (const name of ['request', 'account', 'normalize', 'broker', 'marketData', 'handle']) {
+  for (const name of [
+    'request',
+    'account',
+    'normalize',
+    'broker',
+    'marketData',
+    'handle',
+    'decimal',
+    'rulesAccount',
+    'rules',
+    'ruleMatrix',
+    'ruleSummary',
+    'validateRule',
+  ]) {
     globals.lib.execution[name] = load('lib/execution/' + name + '.js', globals);
   }
   const hook = load('api/execution.1.js', globals);
@@ -114,7 +154,7 @@ function harness() {
 
 test('exact service authentication and POST capability boundary before broker touch', async () => {
   const h = harness();
-  for (const action of ['submit', 'lookup', 'marketdata', 'capabilities']) {
+  for (const action of ['submit', 'lookup', 'marketdata', 'capabilities', 'rules']) {
     for (const headers of [
       {},
       { authorization: 'Bearer user-session' },
@@ -695,4 +735,412 @@ test('unvalidated identifiers/request objects and raw exceptions are never refle
     h.calls.some((call) => /back|ptfin/.test(call.url)),
     false,
   );
+});
+
+const rulesInput = () => ({
+  version: 1,
+  account: 'EXT-1',
+  live: false,
+  credentials: input().credentials,
+  instrument: { symbol: 'AAPL', assetCategory: 'STK', exchange: 'NASDAQ', currency: 'USD' },
+});
+const activeAccount = () => ({
+  account_number: 'EXT-1',
+  id: 'native-account',
+  status: 'ACTIVE',
+  account_blocked: false,
+  trading_blocked: false,
+  trade_suspended_by_user: false,
+  shorting_enabled: true,
+  multiplier: '2',
+  equity: '2000',
+});
+const rulesHarness = () => {
+  const h = harness();
+  h.state.account = activeAccount();
+  return h;
+};
+const unavailable = (result) => {
+  assert.ok(['unavailable', 'unsupported'].includes(result.state));
+  assert.deepEqual(Object.keys(result).sort(), ['reason', 'state', 'version']);
+  assert.equal(result.version, 1);
+  assert.equal(JSON.stringify(result).includes('sentinel-'), false);
+};
+
+test('rules v1 bypasses generic v2 validation, sanitizes all failures and never places orders', async () => {
+  const h = rulesHarness();
+  h.globals.lib.execution.handle = () => assert.fail('v1 must bypass v2/orderId handling');
+  const result = await h.invoke('rules', rulesInput());
+  assert.equal(result.state, 'ready');
+  assert.equal(result.version, 1);
+  assert.deepEqual(plain(result.identity), { terminal: 'ALPACA', externalAccount: 'EXT-1', live: false });
+  assert.deepEqual(plain(result.instrument), rulesInput().instrument);
+  assert.deepEqual(
+    h.calls.map((call) => new URL(call.url).pathname),
+    ['/v2/account', '/v2/account/configurations', '/v2/assets/AAPL'],
+  );
+  assert.ok(h.calls.every((call) => call.options.method === 'GET' && new URL(call.url).host === 'paper-api.alpaca.markets'));
+  for (const patch of [
+    { version: 2 },
+    { live: 'false' },
+    { account: 'EXT-1 ' },
+    { account: { secret: 'sentinel-private-secret' } },
+    { credentials: null },
+    { credentials: [] },
+    { credentials: { pkey: 'key\n', secret: 'secret' } },
+    { instrument: null },
+    { instrument: { ...rulesInput().instrument, symbol: '../AAPL' } },
+  ]) {
+    const count = h.calls.length;
+    unavailable(await h.invoke('rules', { ...rulesInput(), ...patch }));
+    assert.equal(h.calls.length, count);
+  }
+  for (const data of [null, [], false, 'sentinel-private-secret']) unavailable(await h.invoke('rules', data));
+  for (const patch of [{ assetCategory: 'OPT' }, { assetCategory: 'us_option' }, { currency: 'EUR' }, { exchange: 'OTC' }]) {
+    const count = h.calls.length;
+    unavailable(await h.invoke('rules', { ...rulesInput(), instrument: { ...rulesInput().instrument, ...patch } }));
+    assert.equal(h.calls.length, count);
+  }
+  h.globals.lib.execution.rules = () => {
+    throw new Error('sentinel-private-secret');
+  };
+  assert.deepEqual(plain(await h.invoke('rules', rulesInput())), { version: 1, state: 'unavailable', reason: 'source_unavailable' });
+  assert.equal(h.posts().length, 0);
+  assert.equal(h.logs.length, 0);
+});
+
+test('rules account proof requires exact identity, environment, ACTIVE and explicit nonblocking flags', async () => {
+  for (const patch of [
+    { account_number: 'OTHER', id: 'OTHER' },
+    ...[undefined, null, {}, '', 'active', 'ONBOARDING', 'APPROVAL_PENDING', 'ACCOUNT_UPDATED', 'SUSPENDED', 'CLOSED'].map((status) => ({
+      status,
+    })),
+    ...['account_blocked', 'trading_blocked', 'trade_suspended_by_user'].flatMap((name) =>
+      [true, undefined, null, 0, 'false'].map((value) => ({ [name]: value })),
+    ),
+  ]) {
+    const h = rulesHarness();
+    h.state.account = { ...activeAccount(), ...patch };
+    unavailable(await h.invoke('rules', rulesInput()));
+    assert.equal(h.calls.length, 1, 'bad native account stops before configuration/asset use');
+  }
+  for (const row of [null, [], 'ACTIVE']) {
+    const h = rulesHarness();
+    h.state.account = row;
+    unavailable(await h.invoke('rules', rulesInput()));
+  }
+  for (const failure of ['failAccount', 'badJSON']) {
+    const h = rulesHarness();
+    h.state[failure] = true;
+    unavailable(await h.invoke('rules', rulesInput()));
+    assert.equal(h.calls.length, 1);
+  }
+  const h = rulesHarness();
+  h.state.account = (url) =>
+    new URL(url).host === 'paper-api.alpaca.markets' ? activeAccount() : { ...activeAccount(), account_number: 'LIVE-1', id: 'LIVE-ID' };
+  assert.equal((await h.invoke('rules', rulesInput())).state, 'ready');
+  unavailable(await h.invoke('rules', { ...rulesInput(), live: true }));
+  assert.equal((await h.invoke('rules', { ...rulesInput(), account: 'native-account' })).state, 'ready');
+});
+
+test('malformed configuration never grants rules and optional unknown proof closes only affected capabilities', async () => {
+  for (const configuration of [
+    null,
+    [],
+    {},
+    { suspend_trade: true },
+    { suspend_trade: 'false' },
+    ...['fractional_trading', 'no_shorting', 'disable_overnight_trading', 'ptp_no_exception_entry'].map((name) => ({
+      suspend_trade: false,
+      [name]: null,
+    })),
+    { suspend_trade: false, max_margin_multiplier: 2 },
+    { suspend_trade: false, max_margin_multiplier: '3' },
+  ]) {
+    const h = rulesHarness();
+    h.state.configuration = configuration;
+    unavailable(await h.invoke('rules', rulesInput()));
+    assert.equal(h.calls.length, 2);
+  }
+  const h = rulesHarness();
+  h.state.configurationStatus = 503;
+  unavailable(await h.invoke('rules', rulesInput()));
+  h.state.configurationStatus = 200;
+  h.state.configuration = { suspend_trade: false };
+  const result = await h.invoke('rules', rulesInput());
+  assert.equal(result.state, 'ready');
+  assert.ok(
+    result.orders.every(
+      (row) => !row.quantity.fractional && row.session !== 'overnight' && !(row.side === 'sell' && row.positionEffect === 'open'),
+    ),
+  );
+});
+
+test('rules assets require exact active/tradable class/symbol/exchange and explicit valid attributes', async () => {
+  for (const patch of [
+    { class: 'us_option' },
+    { class: undefined },
+    { symbol: 'aapl' },
+    { symbol: 'OTHER' },
+    { exchange: 'NYSE' },
+    { exchange: 'OTC' },
+    { status: 'inactive' },
+    { status: 'ACTIVE' },
+    { tradable: false },
+    { tradable: 'true' },
+    ...[undefined, null, {}, '', [null], [true], [{}], [''], ['overnight_tradable', 'overnight_tradable'], ['unknown_restriction']].map(
+      (attributes) => ({ attributes }),
+    ),
+  ]) {
+    const h = rulesHarness();
+    h.state.asset = { ...h.state.asset, ...patch };
+    unavailable(await h.invoke('rules', rulesInput()));
+    assert.equal(h.posts().length, 0);
+  }
+  for (const attribute of ['ipo', 'ptp_no_exception', 'ptp_with_exception']) {
+    for (const permission of [undefined, false, true]) {
+      const h = rulesHarness();
+      h.state.asset.attributes = [attribute];
+      if (permission !== undefined) h.state.configuration.ptp_no_exception_entry = permission;
+      unavailable(await h.invoke('rules', rulesInput()));
+    }
+  }
+  for (const asset of [null, [], 'AAPL']) {
+    const h = rulesHarness();
+    h.state.asset = asset;
+    unavailable(await h.invoke('rules', rulesInput()));
+  }
+  const h = rulesHarness();
+  h.state.assetStatus = 404;
+  unavailable(await h.invoke('rules', rulesInput()));
+});
+
+test('positive atomic matrix preserves whole TIF support, fractional DAY/close-long and connector extended limit+day', async () => {
+  const h = rulesHarness();
+  const result = plain(await h.invoke('rules', rulesInput()));
+  assert.equal(result.state, 'ready');
+  const whole = result.orders.filter((row) => !row.quantity.fractional && row.session === 'regular');
+  for (const type of ['market', 'limit', 'stop', 'stop_limit']) {
+    const tifs = ['market', 'limit'].includes(type) ? ['day', 'gtc', 'ioc', 'fok'] : ['day', 'gtc'];
+    for (const tif of tifs) {
+      for (const side of ['buy', 'sell']) {
+        for (const positionEffect of ['open', 'close']) {
+          assert.ok(
+            whole.some((row) => row.type === type && row.tif === tif && row.side === side && row.positionEffect === positionEffect),
+          );
+        }
+      }
+    }
+  }
+  assert.deepEqual([...new Set(result.orders.map((row) => row.session))], ['regular', 'pre_market', 'post_market', 'overnight']);
+  assert.equal(new Set(result.orders.map((row) => JSON.stringify(row))).size, result.orders.length);
+  for (const row of result.orders) {
+    assert.equal(row.relation, 'NORMAL');
+    assert.equal(row.orderClass, 'simple');
+    assert.equal(row.quantityMode, 'qty');
+    assert.equal(row.extended, row.session !== 'regular');
+    assert.equal(row.quantity.maximum, 'infinity');
+    assert.deepEqual(row.quantity.minimumNotional, row.side === 'buy' ? { amount: '1', currency: 'USD' } : null);
+    assert.equal(row.quantity.minimum, row.quantity.fractional ? '0.000000001' : '1');
+    assert.equal(row.quantity.step, row.quantity.minimum);
+    if (row.quantity.fractional) {
+      assert.equal(row.tif, 'day');
+      if (row.side === 'sell') assert.equal(row.positionEffect, 'close');
+    }
+    if (row.extended) {
+      assert.equal(row.type, 'limit');
+      assert.equal(row.tif, 'day');
+    }
+    if (['ioc', 'fok'].includes(row.tif)) {
+      assert.equal(row.quantity.fractional, false);
+      assert.equal(row.session, 'regular');
+      assert.ok(['market', 'limit'].includes(row.type));
+    }
+  }
+  assert.deepEqual(result.quantity, { fractional: true, minimum: null, step: null, maximum: 'infinity', minimumNotional: null });
+  assert.equal(h.posts().length, 0);
+});
+
+test('fractional disabled/unknown proof yields whole summary; generic extended evidence never proves overnight', async () => {
+  for (const [target, field] of [
+    ['configuration', 'fractional_trading'],
+    ['asset', 'fractionable'],
+  ]) {
+    for (const value of [false, undefined]) {
+      const h = rulesHarness();
+      if (value === undefined) delete h.state[target][field];
+      else h.state[target][field] = value;
+      const result = await h.invoke('rules', rulesInput());
+      assert.equal(result.state, 'ready');
+      assert.ok(result.orders.every((row) => !row.quantity.fractional));
+      assert.deepEqual(plain(result.quantity), { fractional: false, minimum: '1', step: '1', maximum: 'infinity', minimumNotional: null });
+    }
+  }
+  for (const value of [true, undefined]) {
+    const h = rulesHarness();
+    if (value === undefined) delete h.state.configuration.disable_overnight_trading;
+    else h.state.configuration.disable_overnight_trading = value;
+    const result = await h.invoke('rules', rulesInput());
+    assert.ok(result.orders.every((row) => row.session !== 'overnight'));
+  }
+  for (const attributes of [
+    [],
+    ['fractional_eh_enabled'],
+    ['overnight_tradable', 'overnight_halted'],
+    ['fractional_eh_enabled', 'overnight_halted'],
+  ]) {
+    const h = rulesHarness();
+    h.state.asset.attributes = attributes;
+    h.state.asset.extended_hours = true;
+    const result = await h.invoke('rules', rulesInput());
+    assert.ok(result.orders.every((row) => row.session !== 'overnight'));
+    assert.ok(result.orders.some((row) => row.session === 'pre_market'));
+    assert.ok(result.orders.some((row) => row.session === 'post_market'));
+    if (!attributes.includes('fractional_eh_enabled')) assert.ok(result.orders.every((row) => !row.extended || !row.quantity.fractional));
+  }
+  for (const patch of [
+    { overnight_tradable: false },
+    { overnight_tradable: 'true' },
+    { overnight_halted: true },
+    { overnight_halted: null },
+  ]) {
+    const h = rulesHarness();
+    Object.assign(h.state.asset, patch);
+    assert.ok((await h.invoke('rules', rulesInput())).orders.every((row) => row.session !== 'overnight'));
+  }
+});
+
+test('incomplete short/margin/equity/ETB proof never advertises opening short and preserves sell close', async () => {
+  const variants = [
+    ['account', 'shorting_enabled', [false, undefined, 'true']],
+    ['account', 'multiplier', ['1', undefined, '3', 2]],
+    ['account', 'equity', [undefined, null, '1999.999999999', '2e3', 2000, '-2000']],
+    ['configuration', 'no_shorting', [true, undefined]],
+    ['configuration', 'max_margin_multiplier', ['1', undefined]],
+    ['asset', 'marginable', [false, undefined]],
+    ['asset', 'shortable', [false, undefined]],
+    ['asset', 'easy_to_borrow', [false, undefined, 'true']],
+  ];
+  for (const [target, field, values] of variants) {
+    for (const value of values) {
+      const h = rulesHarness();
+      if (value === undefined) delete h.state[target][field];
+      else h.state[target][field] = value;
+      const result = await h.invoke('rules', rulesInput());
+      assert.equal(result.state, 'ready', target + '.' + field);
+      assert.ok(result.orders.every((row) => !(row.side === 'sell' && row.positionEffect === 'open')));
+      assert.ok(result.orders.some((row) => row.side === 'sell' && row.positionEffect === 'close'));
+    }
+  }
+  for (const attribute of ['hard_to_borrow', 'locate_required']) {
+    const h = rulesHarness();
+    h.state.asset.attributes.push(attribute);
+    unavailable(await h.invoke('rules', rulesInput()));
+  }
+});
+
+test('maximum never serializes undocumented metadata, numeric guards or runtime sentinels', async () => {
+  for (const maximum of [undefined, null, '1000', '1e9', 100, Number.MAX_SAFE_INTEGER, Infinity, {}, 'infinity']) {
+    const h = rulesHarness();
+    h.state.asset.max_order_size = maximum;
+    h.state.asset.quantity = { maximum, minimum: null, step: null };
+    h.state.configuration.max_order_quantity = maximum;
+    const result = await h.invoke('rules', rulesInput());
+    assert.ok(result.orders.every((row) => row.quantity.maximum === 'infinity'));
+    assert.equal(result.quantity.maximum, 'infinity');
+    assert.equal(JSON.stringify(result).includes(String(Number.MAX_SAFE_INTEGER)), false);
+  }
+});
+
+test('summary is uniform-only and concrete validation always selects an exact atomic row', async () => {
+  const h = rulesHarness();
+  const rules = plain(await h.invoke('rules', rulesInput()));
+  const { validateRule, ruleSummary } = h.globals.lib.execution;
+  const choose = (side, fractional) =>
+    rules.orders.find(
+      (row) =>
+        row.type === 'limit' &&
+        row.tif === 'day' &&
+        row.session === 'regular' &&
+        row.side === side &&
+        row.positionEffect === (side === 'sell' ? 'close' : 'open') &&
+        row.quantity.fractional === fractional,
+    );
+  const orderFor = (row, quantity, limitPrice = '1') => ({ ...row, fractional: row.quantity.fractional, quantity, limitPrice });
+  assert.equal(validateRule({ rules, order: orderFor(choose('sell', true), '0.000000001') }), true);
+  assert.equal(validateRule({ rules, order: orderFor(choose('sell', true), '0.0000000001') }), false);
+  assert.equal(validateRule({ rules, order: orderFor(choose('sell', false), '0.5') }), false);
+  assert.equal(validateRule({ rules, order: orderFor(choose('buy', true), '0.5'), valuationPrice: '1' }), false);
+  assert.equal(validateRule({ rules, order: orderFor(choose('buy', true), '0.5'), valuationPrice: '2' }), true);
+  assert.equal(validateRule({ rules, order: orderFor(choose('buy', false), '1'), valuationPrice: '0.99' }), false);
+  assert.equal(validateRule({ rules, order: orderFor(choose('buy', false), '1'), valuationPrice: '1' }), true);
+  assert.equal(validateRule({ rules, order: orderFor(choose('buy', false), '1') }), false);
+  assert.deepEqual(plain(ruleSummary({ orders: rules.orders.filter((row) => row.side === 'buy') })).minimumNotional, {
+    amount: '1',
+    currency: 'USD',
+  });
+  assert.equal(ruleSummary({ orders: rules.orders.filter((row) => row.side === 'sell') }).minimumNotional, null);
+  const altered = { ...rules, quantity: { fractional: true, minimum: '0', step: '0.0000000001', maximum: '999', minimumNotional: null } };
+  assert.equal(validateRule({ rules: altered, order: orderFor(choose('sell', false), '0.5') }), false);
+  assert.equal(validateRule({ rules: altered, order: orderFor(choose('buy', true), '0.5'), valuationPrice: '1' }), false);
+  for (const patch of [
+    { relation: 'BRK' },
+    { orderClass: 'oco' },
+    { quantityMode: 'notional' },
+    { session: 'overnight', extended: false },
+    { tif: 'opg' },
+    { tif: 'cls' },
+    { tif: 'gtc', session: 'pre_market', extended: true },
+  ]) {
+    assert.equal(validateRule({ rules, order: { ...orderFor(choose('sell', true), '1'), ...patch } }), false);
+  }
+  const selected = choose('sell', false);
+  const capped = { ...rules, orders: [{ ...selected, quantity: { ...selected.quantity, maximum: '2' } }] };
+  assert.equal(validateRule({ rules: capped, order: orderFor(selected, '2') }), true);
+  assert.equal(validateRule({ rules: capped, order: orderFor(selected, '3') }), false);
+  for (const name of ['minimum', 'step', 'fractional']) {
+    const broken = { ...rules, orders: [{ ...selected, quantity: { ...selected.quantity, [name]: null } }] };
+    assert.equal(validateRule({ rules: broken, order: orderFor(selected, '1') }), false);
+  }
+});
+
+test('exact decimal price boundary/tick validation never rounds and refuses numeric/exponent evidence', async () => {
+  const h = rulesHarness();
+  const rules = plain(await h.invoke('rules', rulesInput()));
+  const { decimal, validateRule } = h.globals.lib.execution;
+  const row = rules.orders.find(
+    (value) => value.type === 'stop_limit' && value.side === 'sell' && value.positionEffect === 'close' && !value.quantity.fractional,
+  );
+  for (const [price, expected] of [
+    ['0.0001', true],
+    ['0.9999', true],
+    ['1', true],
+    ['1.00', true],
+    ['1.01', true],
+    ['0.00001', false],
+    ['0.99999', false],
+    ['1.0001', false],
+    ['1.001', false],
+    ['0', false],
+    ['1e0', false],
+    [1, false],
+  ]) {
+    for (const field of ['limitPrice', 'stopPrice']) {
+      const order = { ...row, fractional: false, quantity: '1', limitPrice: '1', stopPrice: '1', [field]: price };
+      const original = JSON.stringify(order);
+      assert.equal(validateRule({ rules, order }), expected, field + '=' + price);
+      assert.equal(JSON.stringify(order), original);
+    }
+  }
+  assert.equal(rules.price.rules[0].maximum, '1');
+  assert.equal(rules.price.rules[0].maximumInclusive, false);
+  assert.equal(rules.price.rules[1].minimum, '1');
+  assert.equal(rules.price.rules[1].minimumInclusive, true);
+  assert.equal(rules.price.rounding, 'nearest_half_up');
+  assert.equal(decimal.parse('0001.23000').canonical, '1.23');
+  assert.equal(decimal.compare('9007199254740993', '9007199254740992'), 1);
+  assert.equal(decimal.productAtLeast('0.000000001', '999999999.999999999', '1'), false);
+  assert.equal(decimal.productAtLeast('0.000000001', '1000000000', '1'), true);
+  for (const value of [null, true, '', '1e-9', '-1', 'Infinity', '9'.repeat(257)]) assert.equal(decimal.parse(value), null);
+  assert.equal(h.logs.length, 0);
 });

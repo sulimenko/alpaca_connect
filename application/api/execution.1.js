@@ -5,7 +5,10 @@
   // HTTP hook bypasses the ordinary public RPC envelope. It authenticates
   // before examining credentials and never logs args, headers or exceptions.
   async router({ method, args, verb, headers }) {
-    if (verb !== 'POST' || !['execution/submit', 'execution/lookup', 'execution/marketdata', 'execution/capabilities'].includes(method)) {
+    if (
+      verb !== 'POST' ||
+      !['execution/submit', 'execution/lookup', 'execution/marketdata', 'execution/capabilities', 'execution/rules'].includes(method)
+    ) {
       return { state: 'invalid' };
     }
     const expected = config.execution.token;
@@ -33,8 +36,11 @@
       };
     }
     try {
+      // Rules has its own v1 schema and never enters v2/orderId validation.
+      if (method === 'execution/rules') return await lib.execution.rules({ data: args });
       return await lib.execution.handle({ action: method.split('/')[1], data: args });
     } catch {
+      if (method === 'execution/rules') return { version: 1, state: 'unavailable', reason: 'source_unavailable' };
       const orderId = Number.isSafeInteger(args?.orderId) && args.orderId > 0 ? args.orderId : null;
       return { version: 2, orderId, state: 'source_unavailable' };
     }
