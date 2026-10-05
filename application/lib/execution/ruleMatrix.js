@@ -31,36 +31,32 @@
     // Closing a short is a whole-share buy flow. Fractional sells are close-long.
     if (!fraction) effects.push({ side: 'buy', positionEffect: 'close' });
     if (!fraction && short) effects.push({ side: 'sell', positionEffect: 'open' });
-    for (const session of sessions) {
-      if (fraction && session !== 'regular' && !attributes.includes('fractional_eh_enabled')) continue;
-      const extended = session !== 'regular';
-      for (const type of extended ? ['limit'] : ['market', 'limit', 'stop', 'stop_limit']) {
-        // Ordinary native equity support is the entitlement here; no invented
-        // account flag. IOC/FOK never expands beyond whole regular market/limit.
-        let tifs = ['day'];
-        if (!extended && !fraction) tifs = ['market', 'limit'].includes(type) ? ['day', 'gtc', 'ioc', 'fok'] : ['day', 'gtc'];
-        for (const tif of tifs) {
-          for (const effect of effects) {
-            orders.push({
-              type,
-              tif,
-              session,
-              extended,
-              relation: 'NORMAL',
-              orderClass: 'simple',
-              quantityMode: fraction ? 'fractional' : 'whole',
-              ...effect,
-              quantity: {
-                fractional: fraction,
-                minimum: fraction ? '0.000000001' : '1',
-                step: fraction ? '0.000000001' : '1',
-                // Native equity account/configuration/asset contracts do not
-                // define a finite per-order qty cap. Ignore unconfirmed extras.
-                maximum: 'infinity',
-                minimumNotional: effect.side === 'buy' ? { amount: '1', currency: 'USD' } : null,
-              },
-            });
-          }
+    for (const type of ['market', 'limit', 'stop', 'stop_limit']) {
+      // Ordinary native equity support is the entitlement here; no invented
+      // account flag. IOC/FOK never expands beyond whole regular market/limit.
+      let tifs = ['day'];
+      if (!fraction) tifs = ['market', 'limit'].includes(type) ? ['day', 'gtc', 'ioc', 'fok'] : ['day', 'gtc'];
+      for (const tif of tifs) {
+        const extended = type === 'limit' && ['day', 'gtc'].includes(tif) && (!fraction || attributes.includes('fractional_eh_enabled'));
+        for (const effect of effects) {
+          orders.push({
+            type,
+            tif,
+            sessions: extended ? [...sessions] : ['regular'],
+            relation: 'NORMAL',
+            orderClass: 'simple',
+            quantityMode: fraction ? 'fractional' : 'whole',
+            ...effect,
+            quantity: {
+              fractional: fraction,
+              minimum: fraction ? '0.000000001' : '1',
+              step: fraction ? '0.000000001' : '1',
+              // Native equity account/configuration/asset contracts do not
+              // define a finite per-order qty cap. Ignore unconfirmed extras.
+              maximum: 'infinity',
+              minimumNotional: effect.side === 'buy' ? { amount: '1', currency: 'USD' } : null,
+            },
+          });
         }
       }
     }

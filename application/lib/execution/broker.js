@@ -28,7 +28,7 @@ async ({ action, data }) => {
       [intent.limitPrice, intent.stopPrice].every((value) => value === null || value === undefined || price(value)) &&
       (!['limit', 'stop_limit'].includes(intent.type) || price(intent.limitPrice)) &&
       (!['stop', 'stop_limit'].includes(intent.type) || price(intent.stopPrice)) &&
-      (!intent.extended || (intent.type === 'limit' && intent.tif === 'day'));
+      (!intent.extended || (intent.type === 'limit' && ['day', 'gtc'].includes(intent.tif)));
     if (valid) {
       body = {
         symbol: intent.symbol,

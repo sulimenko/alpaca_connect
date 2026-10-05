@@ -4,14 +4,21 @@
 ({ rules, order, valuationPrice = null }) => {
   const { decimal } = lib.execution;
   if (rules?.version !== 1 || rules.state !== 'ready' || !order || !Array.isArray(rules.orders)) return false;
-  const keys = ['type', 'tif', 'session', 'extended', 'relation', 'orderClass', 'quantityMode', 'side', 'positionEffect'];
+  const canonical = ['regular', 'pre_market', 'post_market', 'overnight'];
+  const validSessions = (sessions) =>
+    Array.isArray(sessions) &&
+    [1, 3, 4].includes(sessions.length) &&
+    canonical.slice(0, sessions.length).every((value, i) => sessions[i] === value);
+  if (!validSessions(order.sessions)) return false;
+  const keys = ['type', 'tif', 'relation', 'orderClass', 'quantityMode', 'side', 'positionEffect'];
   const rows = rules.orders.filter((row) => keys.every((key) => row[key] === order[key]) && row.quantity?.fractional === order.fractional);
   if (rows.length !== 1) return false;
   const row = rows[0];
   const quantity = row.quantity;
   if (
-    row.extended !== (row.session !== 'regular') ||
-    !['regular', 'pre_market', 'post_market', 'overnight'].includes(row.session) ||
+    !validSessions(row.sessions) ||
+    row.sessions.length !== order.sessions.length ||
+    !row.sessions.every((value, i) => value === order.sessions[i]) ||
     typeof quantity.fractional !== 'boolean' ||
     row.quantityMode !== (quantity.fractional ? 'fractional' : 'whole') ||
     decimal.compare(quantity.minimum, '0') !== 1 ||

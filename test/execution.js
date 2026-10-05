@@ -243,6 +243,49 @@ test('initial invalid intent cannot place an order; account proof precedes autho
   assert.equal(h.proofs().length, 19);
 });
 
+test('extended limit DAY/GTC keeps native TIF and one POST across parallel, repeat and conflicting submits', async () => {
+  for (const tif of ['day', 'gtc']) {
+    const h = harness();
+    const data = input();
+    data.intent = { ...data.intent, type: 'limit', tif, extended: true, limitPrice: 10 };
+    const [first, parallel] = await Promise.all([h.invoke('submit', data), h.invoke('submit', data)]);
+    assert.equal(first.state, 'acknowledged');
+    assert.ok(['acknowledged', 'ambiguous'].includes(parallel.state));
+    assert.deepEqual(plain(await h.invoke('submit', data)), plain(first));
+    assert.equal(h.proofs().length, 3);
+    assert.equal(h.posts().length, 1);
+    assert.deepEqual(JSON.parse(h.posts()[0].options.body), {
+      symbol: 'AAPL',
+      qty: '2',
+      side: 'buy',
+      type: 'limit',
+      time_in_force: tif,
+      client_order_id: 'meta-17',
+      extended_hours: true,
+      limit_price: '10',
+    });
+    for (const patch of [{ tif: tif === 'day' ? 'gtc' : 'day' }, { extended: false }, { tif: 'ioc' }, { quantity: 3 }]) {
+      assert.equal((await h.invoke('submit', { ...data, intent: { ...data.intent, ...patch } })).state, 'ambiguous');
+    }
+    assert.equal(h.proofs().length, 7);
+    assert.equal(h.posts().length, 1);
+  }
+});
+
+test('extended market/stop/stop_limit and limit IOC/FOK reject before native POST', async () => {
+  for (const type of ['market', 'limit', 'stop', 'stop_limit']) {
+    for (const tif of ['day', 'gtc', 'ioc', 'fok']) {
+      if (type === 'limit' && ['day', 'gtc'].includes(tif)) continue;
+      const h = harness();
+      const data = input();
+      data.intent = { ...data.intent, type, tif, extended: true, limitPrice: 10, stopPrice: 9 };
+      assert.equal((await h.invoke('submit', data)).state, 'rejected', type + '/' + tif);
+      assert.equal(h.proofs().length, 1);
+      assert.equal(h.posts().length, 0);
+    }
+  }
+});
+
 test('parallel and cached submit always prove account freshly and send at most one POST', async () => {
   const h = harness();
   const data = input();
@@ -871,7 +914,7 @@ test('malformed configuration never grants rules and optional unknown proof clos
   assert.equal(result.state, 'ready');
   assert.ok(
     result.orders.every(
-      (row) => !row.quantity.fractional && row.session !== 'overnight' && !(row.side === 'sell' && row.positionEffect === 'open'),
+      (row) => !row.quantity.fractional && !row.sessions.includes('overnight') && !(row.side === 'sell' && row.positionEffect === 'open'),
     ),
   );
 });
@@ -915,11 +958,13 @@ test('rules assets require exact active/tradable class/symbol/exchange and expli
   unavailable(await h.invoke('rules', rulesInput()));
 });
 
-test('positive atomic matrix preserves whole TIF support, fractional DAY/close-long and connector extended limit+day', async () => {
+test('one maximal canonical scope per capability preserves whole TIF and fractional DAY/close-long support', async () => {
   const h = rulesHarness();
   const result = plain(await h.invoke('rules', rulesInput()));
   assert.equal(result.state, 'ready');
-  const whole = result.orders.filter((row) => !row.quantity.fractional && row.session === 'regular');
+  const whole = result.orders.filter((row) => !row.quantity.fractional);
+  assert.equal(whole.length, 48);
+  assert.equal(result.orders.length, 56);
   for (const type of ['market', 'limit', 'stop', 'stop_limit']) {
     const tifs = ['market', 'limit'].includes(type) ? ['day', 'gtc', 'ioc', 'fok'] : ['day', 'gtc'];
     for (const tif of tifs) {
@@ -932,13 +977,17 @@ test('positive atomic matrix preserves whole TIF support, fractional DAY/close-l
       }
     }
   }
-  assert.deepEqual([...new Set(result.orders.map((row) => row.session))], ['regular', 'pre_market', 'post_market', 'overnight']);
-  assert.equal(new Set(result.orders.map((row) => JSON.stringify(row))).size, result.orders.length);
+  const keys = ['type', 'tif', 'relation', 'orderClass', 'quantityMode', 'side', 'positionEffect'];
+  assert.equal(new Set(result.orders.map((row) => JSON.stringify(keys.map((key) => row[key])))).size, result.orders.length);
   for (const row of result.orders) {
+    assert.deepEqual(Object.keys(row).sort(), [...keys, 'sessions', 'quantity'].sort());
     assert.equal(row.relation, 'NORMAL');
     assert.equal(row.orderClass, 'simple');
     assert.equal(row.quantityMode, row.quantity.fractional ? 'fractional' : 'whole');
-    assert.equal(row.extended, row.session !== 'regular');
+    assert.deepEqual(
+      row.sessions,
+      row.type === 'limit' && ['day', 'gtc'].includes(row.tif) ? ['regular', 'pre_market', 'post_market', 'overnight'] : ['regular'],
+    );
     assert.equal(row.quantity.maximum, 'infinity');
     assert.deepEqual(row.quantity.minimumNotional, row.side === 'buy' ? { amount: '1', currency: 'USD' } : null);
     assert.equal(row.quantity.minimum, row.quantity.fractional ? '0.000000001' : '1');
@@ -947,13 +996,13 @@ test('positive atomic matrix preserves whole TIF support, fractional DAY/close-l
       assert.equal(row.tif, 'day');
       if (row.side === 'sell') assert.equal(row.positionEffect, 'close');
     }
-    if (row.extended) {
+    if (row.sessions.length > 1) {
       assert.equal(row.type, 'limit');
-      assert.equal(row.tif, 'day');
+      assert.ok(['day', 'gtc'].includes(row.tif));
     }
     if (['ioc', 'fok'].includes(row.tif)) {
       assert.equal(row.quantity.fractional, false);
-      assert.equal(row.session, 'regular');
+      assert.deepEqual(row.sessions, ['regular']);
       assert.ok(['market', 'limit'].includes(row.type));
     }
   }
@@ -981,7 +1030,7 @@ test('fractional disabled/unknown proof yields whole summary; generic extended e
     if (value === undefined) delete h.state.configuration.disable_overnight_trading;
     else h.state.configuration.disable_overnight_trading = value;
     const result = await h.invoke('rules', rulesInput());
-    assert.ok(result.orders.every((row) => row.session !== 'overnight'));
+    assert.ok(result.orders.every((row) => !row.sessions.includes('overnight')));
   }
   for (const attributes of [
     [],
@@ -993,10 +1042,12 @@ test('fractional disabled/unknown proof yields whole summary; generic extended e
     h.state.asset.attributes = attributes;
     h.state.asset.extended_hours = true;
     const result = await h.invoke('rules', rulesInput());
-    assert.ok(result.orders.every((row) => row.session !== 'overnight'));
-    assert.ok(result.orders.some((row) => row.session === 'pre_market'));
-    assert.ok(result.orders.some((row) => row.session === 'post_market'));
-    if (!attributes.includes('fractional_eh_enabled')) assert.ok(result.orders.every((row) => !row.extended || !row.quantity.fractional));
+    assert.ok(result.orders.every((row) => !row.sessions.includes('overnight')));
+    assert.ok(result.orders.some((row) => row.sessions.includes('pre_market')));
+    assert.ok(result.orders.some((row) => row.sessions.includes('post_market')));
+    if (!attributes.includes('fractional_eh_enabled')) {
+      assert.ok(result.orders.every((row) => row.sessions.length === 1 || !row.quantity.fractional));
+    }
   }
   for (const patch of [
     { overnight_tradable: false },
@@ -1006,7 +1057,34 @@ test('fractional disabled/unknown proof yields whole summary; generic extended e
   ]) {
     const h = rulesHarness();
     Object.assign(h.state.asset, patch);
-    assert.ok((await h.invoke('rules', rulesInput())).orders.every((row) => row.session !== 'overnight'));
+    assert.ok((await h.invoke('rules', rulesInput())).orders.every((row) => !row.sessions.includes('overnight')));
+  }
+});
+
+test('limit scope intersects fractional EH and overnight proofs without fractional GTC or regular duplicates', async () => {
+  for (const fractionalEH of [false, true]) {
+    for (const tradable of [false, true]) {
+      for (const disabled of [false, true]) {
+        const h = rulesHarness();
+        h.state.configuration.disable_overnight_trading = disabled;
+        h.state.asset.attributes = [];
+        if (fractionalEH) h.state.asset.attributes.push('fractional_eh_enabled');
+        if (tradable) h.state.asset.attributes.push('overnight_tradable');
+        // Explicit newer fields must agree with the attributes proof.
+        h.state.asset.overnight_tradable = tradable;
+        h.state.asset.overnight_halted = false;
+        const rules = plain(await h.invoke('rules', rulesInput()));
+        const extended = ['regular', 'pre_market', 'post_market'];
+        if (tradable && !disabled) extended.push('overnight');
+        for (const row of rules.orders) {
+          const expected = row.type === 'limit' && ['day', 'gtc'].includes(row.tif) && (!row.quantity.fractional || fractionalEH);
+          assert.deepEqual(row.sessions, expected ? extended : ['regular']);
+          if (row.quantity.fractional) assert.equal(row.tif, 'day');
+        }
+        assert.equal(rules.orders.length, 56);
+        assert.equal(h.posts().length, 0);
+      }
+    }
   }
 });
 
@@ -1061,7 +1139,6 @@ test('summary is uniform-only and concrete validation always selects an exact at
       (row) =>
         row.type === 'limit' &&
         row.tif === 'day' &&
-        row.session === 'regular' &&
         row.side === side &&
         row.positionEffect === (side === 'sell' ? 'close' : 'open') &&
         row.quantity.fractional === fractional,
@@ -1090,10 +1167,10 @@ test('summary is uniform-only and concrete validation always selects an exact at
     { quantityMode: 'qty' },
     { quantityMode: 'whole' },
     { fractional: false },
-    { session: 'overnight', extended: false },
+    { sessions: ['overnight'] },
     { tif: 'opg' },
     { tif: 'cls' },
-    { tif: 'gtc', session: 'pre_market', extended: true },
+    { tif: 'gtc', sessions: ['regular', 'pre_market', 'post_market'] },
   ]) {
     assert.equal(validateRule({ rules, order: { ...orderFor(choose('sell', true), '1'), ...patch } }), false);
   }
@@ -1112,6 +1189,64 @@ test('summary is uniform-only and concrete validation always selects an exact at
       const inconsistent = { ...row, quantityMode };
       const broken = { ...rules, orders: [inconsistent] };
       assert.equal(validateRule({ rules: broken, order: orderFor(inconsistent, '1') }), false);
+    }
+  }
+});
+
+test('validateRule compares separate canonical arrays by content and rejects malformed, subset and ambiguous scopes', async () => {
+  for (const overnight of [false, true]) {
+    const h = rulesHarness();
+    h.state.configuration.disable_overnight_trading = !overnight;
+    const rules = plain(await h.invoke('rules', rulesInput()));
+    const { validateRule } = h.globals.lib.execution;
+    for (const type of ['market', 'limit']) {
+      const row = rules.orders.find(
+        (value) =>
+          value.type === type &&
+          value.tif === 'gtc' &&
+          value.side === 'sell' &&
+          value.positionEffect === 'close' &&
+          !value.quantity.fractional,
+      );
+      const order = { ...row, sessions: [...row.sessions], fractional: false, quantity: '1', limitPrice: '1' };
+      assert.notEqual(order.sessions, row.sessions);
+      const original = JSON.stringify({ rules, order });
+      assert.equal(validateRule({ rules, order }), true);
+      assert.equal(JSON.stringify({ rules, order }), original);
+      assert.equal(validateRule({ rules, order: { ...order, fractional: undefined } }), false);
+      const malformed = [
+        undefined,
+        null,
+        'regular',
+        [],
+        ['unknown'],
+        ['regular', 'unknown', 'post_market'],
+        ['regular', 'pre_market'],
+        ['regular', 'pre_market', 'pre_market'],
+        ['pre_market', 'regular', 'post_market'],
+        ['regular', 'post_market', 'pre_market', 'overnight'],
+        ['regular', 'pre_market', 'post_market', 'overnight', 'overnight'],
+        new Array(3),
+      ];
+      for (const sessions of malformed) {
+        assert.equal(validateRule({ rules, order: { ...order, sessions } }), false);
+        // Matching bad row/order scopes cannot make malformed arrays valid.
+        const broken = { ...rules, orders: [{ ...row, sessions }] };
+        assert.equal(validateRule({ rules: broken, order: { ...order, sessions } }), false);
+      }
+      for (const sessions of [
+        ['regular'],
+        ['regular', 'pre_market', 'post_market'],
+        ['regular', 'pre_market', 'post_market', 'overnight'],
+      ]) {
+        if (sessions.length === row.sessions.length) continue;
+        assert.equal(validateRule({ rules, order: { ...order, sessions } }), false);
+        // Even different canonical scopes cannot duplicate one capability.
+        const ambiguous = { ...rules, orders: [row, { ...row, sessions }] };
+        assert.equal(validateRule({ rules: ambiguous, order }), false);
+      }
+      const duplicate = { ...rules, orders: [row, plain(row)] };
+      assert.equal(validateRule({ rules: duplicate, order }), false);
     }
   }
 });

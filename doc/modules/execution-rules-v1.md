@@ -1,4 +1,4 @@
-# Protected Alpaca execution/rules v1 (T-137)
+# Protected Alpaca execution/rules v1 (T-137/T-140)
 
 `POST /api/execution/rules` uses the same service bearer and
 `X-Service-Identity` as [T-133/T-135](trading-v2-execution.md). Authentication
@@ -68,7 +68,7 @@ Unknown attributes fail closed rather than implying an unrestricted asset.
 ## Atomic capability matrix
 
 Every `orders[]` row contains
-`type,tif,session,extended,relation,orderClass,quantityMode,side,positionEffect,quantity`.
+`type,tif,sessions,relation,orderClass,quantityMode,side,positionEffect,quantity`.
 Relation is `NORMAL`, class is `simple`, and quantity mode is `whole` or
 `fractional`, matching the row's `quantity.fractional`. These common-wire values
 describe quantity capability; native submission remains qty-based. No
@@ -79,8 +79,10 @@ is intersected with existing connector representation. Whole regular rows use
 market/limit/stop/stop_limit with DAY/GTC, plus market/limit IOC/FOK. Ordinary
 authenticated active listed-equity eligibility is the support proof under the
 approved contract; no invented IOC/FOK account entitlement flag is introduced.
-Fractional rows use DAY only. Extended rows use limit+DAY only even where native
-Alpaca supports more. No extended GTC, OPG or CLS is added to rules or submission.
+Every combination of `type,tif,relation,orderClass,quantityMode,side,positionEffect`
+has exactly one row with its maximum proven native `sessions` scope. Whole limit
+DAY/GTC includes extended sessions; market/stop/stop_limit and IOC/FOK remain
+regular-only. Fractional rows use DAY only; fractional GTC, OPG and CLS are absent.
 Price tick constraints also come from this native contract.
 
 Buy-open and sell-close rows are independently available. Whole buy-close is
@@ -100,18 +102,29 @@ prove DAY support, long-only sells and up to nine decimal places of qty precisio
 The smallest positive representable qty and step are `0.000000001`; whole-share
 rows use `1`. These are documented domain rules, not numeric fallbacks.
 
-`session` is exactly `regular`, `pre_market`, `post_market`, or `overnight`;
-`extended` is exactly `session !== regular`. Fresh active account, nonblocking
-configuration and eligible listed asset, together with the direct Trading
-contract, prove the separately emitted pre/post contexts. Fractional extended
-rows additionally require the `fractional_eh_enabled` attribute.
+Rules v1 replaces only the old row-level `session` and `extended` fields with
+`sessions[]`; all other row fields, envelopes, versions and capabilities remain
+unchanged. Canonical arrays have no duplicates and use exactly one of:
+
+- `['regular']`
+- `['regular','pre_market','post_market']`
+- `['regular','pre_market','post_market','overnight']`
+
+An extended-capable combination has no additional regular-only row. Fresh active
+account, nonblocking configuration and eligible listed asset, together with the direct Trading
+contract, prove the combined regular/pre/post scope for whole limit DAY/GTC.
+Fractional limit DAY receives that scope only with the `fractional_eh_enabled`
+attribute; otherwise its scope is `['regular']`. Other fractional types remain
+regular-only regardless of that attribute.
 [Overnight proof](https://docs.alpaca.markets/us/docs/245-trading-for-trading-api)
 additionally requires `disable_overnight_trading=false`, `overnight_tradable` in
 attributes and absence of `overnight_halted` from the explicit array. If newer
 boolean overnight fields are present, they must agree with that proof.
 
-Sessions describe broker capability/execution context, not exclusive execution
-windows. Submission still sends only native `extended_hours=true`. No local
+Sessions describe one native execution scope, not a selection of independent
+windows, separate orders or an execution guarantee. Submission still accepts
+boolean `intent.extended`; extended limit DAY/GTC sends one native POST with
+`extended_hours=true` and the original `time_in_force`. No local
 clock/calendar inference, scheduler, session-bound cancel or re-submit is added.
 An eligible order may carry across sessions under broker lifecycle semantics.
 Rules does not prove current position size, buying power, market availability or
@@ -150,8 +163,11 @@ same value; otherwise it is null. For a mixed whole/fractional buy/sell response
 ```
 
 Null means no uniform rule, not unbounded or missing row proof. Concrete internal
-`validateRule({rules,order,valuationPrice})` selects one exact atomic row by all
-capability keys and explicit `order.fractional`, then checks that row's qty
+`validateRule({rules,order,valuationPrice})` requires a unique row by the
+nonsession capability keys and explicit `order.fractional`, then compares
+canonical `order.sessions[]` with the row by content, including order and length.
+Separate equal arrays are accepted; missing, empty, unknown, duplicate, reordered
+or subset scopes and ambiguous rows are rejected. It then checks that row's qty
 constraints, including consistency of `quantityMode` with `quantity.fractional`.
 It never validates against the summary. Quantities/prices are
 positive decimal strings; buy value validation needs explicit caller-supplied
@@ -180,14 +196,15 @@ submitted values; PBull is unchanged.
 
 ## Validation and delivery
 
-`node --test test/execution.js test/execution-http.js` covers focused T-137
-fixtures plus T-133/T-135 regressions. The actual Impress HTTP suite exercises
+`node --test test/execution.js test/execution-http.js` covers T-137/T-140 scopes,
+exact validation and extended DAY/GTC single-POST behavior plus T-133/T-135
+regressions. The actual Impress HTTP suite exercises
 rules authentication, v1 routing, fresh native proof, sanitization and native
 failures using a controlled fetch fixture. Unexpected transport is blocked;
 rules performs no real order. HTTP responses and runtime logs are checked for
 credential/service-token sentinels.
 
-On Node.js 24 run `npm test`, `npm run lint`, `npm run types` and
-`BASE_BRANCH=develop CHECK_MODE=default bash doc/ai/project-checks.sh`.
+On Node.js 24 run the focused test command above, `npm run lint`, `npm run types`
+and `git diff --check`.
 Independent worktree verification and commit/push/Draft PR delivery belong to
 the pipeline; the implementation agent does not perform Git delivery.
