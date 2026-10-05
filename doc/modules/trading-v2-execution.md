@@ -12,11 +12,14 @@ The first protected API is `application/api/execution.1.js`. Legacy public
 `alpaca.2` endpoints and auth/session semantics are unchanged. Package and lockfile
 version are `26.10.0`; API version stays `1`, execution wire version stays `2`.
 The additional protected [rules endpoint (T-137)](execution-rules-v1.md) has its
-own wire version `1` and does not change this execution contract.
+own wire version `1`. T-140 represents each rule's single native execution scope
+as canonical `sessions[]`; submit retains boolean `intent.extended` and the
+existing v2 envelope, capabilities and placement/recovery lifecycle.
 
 Only POST requests to `/api/execution/submit`, `/api/execution/lookup`,
-`/api/execution/marketdata`, `/api/execution/capabilities` are supported. All require
-an exact `Authorization: Bearer <BROKER_EXECUTION_TOKEN>` (dedicated service token,
+`/api/execution/marketdata`, `/api/execution/capabilities` and `/api/execution/rules`
+are supported. All require an exact `Authorization: Bearer <BROKER_EXECUTION_TOKEN>`
+(dedicated service token,
 at least 32 characters) and `X-Service-Identity: metaterminal-execution`. Missing,
 wrong or user-session bearers and wrong service identity are rejected before
 broker touch. The execution hook bypasses the legacy request-body/header logger.
@@ -57,8 +60,12 @@ proof returns `source_unavailable`, with no order/data request.
 Submit accepts Meta's normalized STK/OPT intent: `symbol`, signed nonzero finite
 `quantity`, `type` (market/limit/stop/stop_limit), `tif` (day/gtc/ioc/fok), boolean
 `extended`, positive finite required `limitPrice`/`stopPrice`, `relation: NORMAL`
-and empty `related`. Extended hours require limit/day. Unsupported groups
-(BRK/OCO) are rejected before placement. The signed quantity determines buy/sell;
+and empty `related`. Extended hours require limit with DAY or GTC. The connector
+sends one native order with `extended_hours=true` and preserves the supplied
+`time_in_force`; it does not split an order across the rules' sessions or schedule
+cancel/re-submit. Extended market/stop/stop_limit and IOC/FOK are rejected before
+order POST. Unsupported groups (BRK/OCO) are rejected before placement.
+The signed quantity determines buy/sell;
 broker qty is its absolute value. Broker-level eligibility remains Alpaca's
 responsibility.
 
@@ -155,10 +162,12 @@ sanitized Meta fields are returned; upstream extras are discarded.
 ## Validation and rollout gate
 
 Run `node --test test/execution.js test/execution-http.js`, `npm run lint`,
-`npm run types`, and the safe project checks. The focused suite includes strict
+`npm run types`, and `git diff --check`. The focused suite includes strict
 fill/status matrices, repeat-submit failures after acknowledgment/lost response,
-concurrency, account/environment proof, broker pins, duplicate evidence,
-pagination, sanitization, and Meta's durable barrier against reusable broker IDs.
+concurrency, extended limit DAY/GTC with unchanged native TIF and one POST,
+forbidden extended type/TIF combinations, account/environment proof, broker pins,
+duplicate evidence, pagination, sanitization, and Meta's durable barrier against
+reusable broker IDs.
 
 The real Impress test preloads a controlled fetch fixture in actual workers,
 blocks unexpected transport and exercises authorized broker success, native

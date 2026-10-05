@@ -37,6 +37,15 @@ function installFetchFixture() {
       throw error();
     }
     const event = { path: url.pathname, host: url.hostname, method: options.method };
+    if (url.pathname === '/v2/orders' && options.method === 'POST') {
+      const request = JSON.parse(options.body);
+      event.native = {
+        type: request.type,
+        time_in_force: request.time_in_force,
+        extended_hours: request.extended_hours,
+        client_order_id: request.client_order_id,
+      };
+    }
     fixtureFs.appendFileSync(eventFile, JSON.stringify(event) + '\n');
     if (options.redirect !== 'error' || !options.signal || options.headers['APCA-API-SECRET-KEY'] !== secret) throw error();
     const key = options.headers['APCA-API-KEY-ID'];
@@ -284,7 +293,10 @@ test('real Impress authorized broker paths, full restart recovery and credential
     };
     const ruleStart = events().length;
     const rules = await call('rules', rulesData);
+    assert.equal(rules.version, 1);
     assert.equal(rules.state, 'ready');
+    assert.deepEqual(Object.keys(rules).sort(), ['version', 'state', 'identity', 'instrument', 'orders', 'quantity', 'price'].sort());
+    assert.deepEqual(rules.instrument, rulesData.instrument);
     assert.deepEqual(rules.quantity, { fractional: true, minimum: null, step: null, maximum: 'infinity', minimumNotional: null });
     assert.deepEqual(rules.identity, { terminal: 'ALPACA', externalAccount: 'EXT-1', live: false });
     assert.deepEqual(rules.price, {
@@ -293,15 +305,30 @@ test('real Impress authorized broker paths, full restart recovery and credential
         { minInclusive: '1', maxExclusive: null, tick: '0.01', precision: 2, rounding: 'nearest_half_up' },
       ],
     });
-    assert.ok(rules.orders.some((row) => row.session === 'overnight' && row.quantity.fractional));
+    assert.ok(rules.orders.some((row) => row.sessions.includes('overnight') && row.quantity.fractional));
     assert.ok(rules.orders.every((row) => row.quantityMode === (row.quantity.fractional ? 'fractional' : 'whole')));
-    assert.ok(rules.orders.every((row) => row.extended === (row.session !== 'regular')));
-    assert.ok(rules.orders.every((row) => !row.extended || (row.type === 'limit' && row.tif === 'day')));
+    const keys = ['type', 'tif', 'relation', 'orderClass', 'quantityMode', 'side', 'positionEffect'];
+    assert.equal(rules.orders.length, 56);
+    assert.equal(new Set(rules.orders.map((row) => JSON.stringify(keys.map((key) => row[key])))).size, rules.orders.length);
+    for (const row of rules.orders) {
+      assert.deepEqual(Object.keys(row).sort(), [...keys, 'sessions', 'quantity'].sort());
+      assert.deepEqual(
+        row.sessions,
+        row.type === 'limit' && ['day', 'gtc'].includes(row.tif) ? ['regular', 'pre_market', 'post_market', 'overnight'] : ['regular'],
+      );
+      if (row.quantity.fractional) assert.equal(row.tif, 'day');
+    }
+    assert.deepEqual(await call('rules', rulesData), rules);
     assert.deepEqual(
       events()
         .slice(ruleStart)
         .map((event) => event.path),
-      ['/v2/account', '/v2/account/configurations', '/v2/assets/AAPL'],
+      ['/v2/account', '/v2/account/configurations', '/v2/assets/AAPL', '/v2/account', '/v2/account/configurations', '/v2/assets/AAPL'],
+    );
+    assert.ok(
+      events()
+        .slice(ruleStart)
+        .every((event) => event.method === 'GET' && event.host === 'paper-api.alpaca.markets'),
     );
     assert.equal(posts(), 0, 'rules never places an order');
     for (const pkey of [
@@ -333,6 +360,41 @@ test('real Impress authorized broker paths, full restart recovery and credential
       assert.equal(events().length, count);
     }
     assert.equal(posts(), 0);
+    for (const [orderId, tif] of [
+      [30, 'day'],
+      [31, 'gtc'],
+    ]) {
+      const request = data(orderId);
+      request.intent = { ...request.intent, type: 'limit', tif, extended: true, limitPrice: 10 };
+      const count = posts();
+      const proofCount = proofs();
+      const outcomes = await Promise.all([call('submit', request), call('submit', request)]);
+      assert.ok(outcomes.every((outcome) => ['acknowledged', 'ambiguous'].includes(outcome.state)));
+      const acknowledged = outcomes.find((outcome) => outcome.state === 'acknowledged');
+      assert.ok(acknowledged, 'one parallel caller must receive the native acknowledgment');
+      assert.deepEqual(await call('submit', request), acknowledged);
+      for (const patch of [{ tif: tif === 'day' ? 'gtc' : 'day' }, { extended: false }, { tif: 'ioc' }]) {
+        assert.equal((await call('submit', { ...request, intent: { ...request.intent, ...patch } })).state, 'ambiguous');
+      }
+      assert.equal(proofs(), proofCount + 6);
+      assert.equal(posts(), count + 1);
+      assert.deepEqual(events().find((event) => event.native?.client_order_id === 'meta-' + orderId).native, {
+        type: 'limit',
+        time_in_force: tif,
+        extended_hours: true,
+        client_order_id: 'meta-' + orderId,
+      });
+    }
+    const extendedPosts = posts();
+    for (const type of ['market', 'limit', 'stop', 'stop_limit']) {
+      for (const tif of ['day', 'gtc', 'ioc', 'fok']) {
+        if (type === 'limit' && ['day', 'gtc'].includes(tif)) continue;
+        const request = data(32);
+        request.intent = { ...request.intent, type, tif, extended: true, limitPrice: 10, stopPrice: 9 };
+        assert.equal((await call('submit', request)).state, 'rejected');
+      }
+    }
+    assert.equal(posts(), extendedPosts, 'forbidden extended combinations never place an order');
     assert.equal((await call('submit', data())).state, 'acknowledged');
     assert.equal((await call('lookup', { ...data(), brokerId: 'B-17' })).state, 'found');
     assert.equal((await call('lookup', { ...data(), brokerId: 'OTHER' })).state, 'source_unavailable');
